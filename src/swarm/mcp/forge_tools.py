@@ -67,7 +67,8 @@ def forge_create(
 
 @mcp.tool()
 def forge_clone(
-    source_id: str,
+    source_id: str = "",
+    source_name: str = "",
     name: str = "",
     system_prompt: str = "",
     tools: str = "",
@@ -77,6 +78,7 @@ def forge_clone(
 
     Args:
         source_id: ID of the agent to clone.
+        source_name: Name of the agent to clone (alternative to source_id).
         name: Override name (empty keeps the original).
         system_prompt: Override prompt (empty keeps the original).
         tools: Override tools as JSON array (empty keeps the original).
@@ -86,6 +88,12 @@ def forge_clone(
         JSON with the new cloned agent definition.
     """
     assert state.forge_api is not None
+    assert state.registry_api is not None
+    if not source_id and source_name:
+        defn = state.registry_api.resolve_agent(source_name)
+        source_id = defn.id
+    if not source_id:
+        return json.dumps({"error": "Supply source_id or source_name"})
     overrides: dict[str, str | list[str]] = {}
     if name:
         overrides["name"] = name
@@ -95,8 +103,8 @@ def forge_clone(
         overrides["tools"] = json.loads(tools)
     if permissions:
         overrides["permissions"] = json.loads(permissions)
-    defn = state.forge_api.clone_agent(source_id, overrides)
-    return json.dumps(defn.to_dict())
+    cloned = state.forge_api.clone_agent(source_id, overrides)
+    return json.dumps(cloned.to_dict())
 
 
 @mcp.tool()

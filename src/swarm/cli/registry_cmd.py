@@ -6,13 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from swarm.config import load_config
-from swarm.registry.api import RegistryAPI
-
-
-def _get_registry() -> RegistryAPI:
-    config = load_config()
-    return RegistryAPI(config.base_dir / "registry.db")
+from swarm.cli._helpers import get_registry
 
 
 @click.group()
@@ -23,7 +17,7 @@ def registry() -> None:
 @registry.command("list")
 def list_agents() -> None:
     """List all registered agent definitions."""
-    api = _get_registry()
+    api = get_registry()
     agents = api.list_agents()
     console = Console()
     if not agents:
@@ -43,23 +37,33 @@ def list_agents() -> None:
 @click.argument("query")
 def search(query: str) -> None:
     """Search agent definitions by name or prompt."""
-    api = _get_registry()
+    api = get_registry()
     results = api.search(query)
     console = Console()
     if not results:
         console.print(f"[dim]No agents matching '{query}'.[/dim]")
         return
+    table = Table(title=f"Agents matching '{query}'")
+    table.add_column("Name", style="bold")
+    table.add_column("ID", style="dim", max_width=12)
+    table.add_column("Prompt", max_width=60)
+    table.add_column("Parent", style="dim", max_width=12)
     for a in results:
-        console.print(f"[bold]{a.name}[/bold] ({a.id[:12]}) — {a.system_prompt[:60]}")
+        table.add_row(a.name, a.id[:12], a.system_prompt[:60], (a.parent_id or "")[:12])
+    console.print(table)
 
 
 @registry.command()
-@click.argument("agent_id")
-def inspect(agent_id: str) -> None:
-    """Show full details and provenance chain for an agent."""
-    api = _get_registry()
+@click.argument("identifier")
+def inspect(identifier: str) -> None:
+    """Show full details and provenance chain for an agent.
+
+    IDENTIFIER can be an agent name or UUID.
+    """
+    api = get_registry()
     try:
-        info = api.inspect(agent_id)
+        defn = api.resolve_agent(identifier)
+        info = api.inspect(defn.id)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
@@ -78,15 +82,20 @@ def inspect(agent_id: str) -> None:
 
 
 @registry.command()
-@click.argument("agent_id")
-def remove(agent_id: str) -> None:
-    """Remove an agent definition."""
-    api = _get_registry()
-    if api.remove(agent_id):
-        click.echo(f"Removed agent {agent_id}")
-    else:
-        click.echo(f"Agent {agent_id} not found", err=True)
-        raise SystemExit(1)
+@click.argument("identifier")
+def remove(identifier: str) -> None:
+    """Remove an agent definition.
+
+    IDENTIFIER can be an agent name or UUID.
+    """
+    api = get_registry()
+    try:
+        defn = api.resolve_agent(identifier)
+    except Exception as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1) from e
+    api.remove(defn.id)
+    click.echo(f"Removed agent {defn.name} ({defn.id})")
 
 
 @registry.command()
@@ -96,7 +105,7 @@ def remove(agent_id: str) -> None:
 @click.option("--permissions", default="", help="Comma-separated permissions")
 def create(name: str, prompt: str, tools: str, permissions: str) -> None:
     """Create a new agent definition."""
-    api = _get_registry()
+    api = get_registry()
     tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
     perm_list = [p.strip() for p in permissions.split(",") if p.strip()] if permissions else []
     d = api.create(name, prompt, tool_list, perm_list)
@@ -104,28 +113,25 @@ def create(name: str, prompt: str, tools: str, permissions: str) -> None:
 
 
 @registry.command()
-@click.argument("agent_id")
+@click.argument("identifier")
 @click.option("--name", required=True, help="New agent name")
 @click.option("--prompt", default=None, help="Override system prompt")
 @click.option("--tools", default=None, help="Override tools (comma-separated)")
-def clone(agent_id: str, name: str, prompt: str | None, tools: str | None) -> None:
-    """Clone an agent definition with overrides."""
-    api = _get_registry()
+def clone(identifier: str, name: str, prompt: str | None, tools: str | None) -> None:
+    """Clone an agent definition with overrides.
+
+    IDENTIFIER can be an agent name or UUID.
+    """
+    api = get_registry()
     overrides: dict[str, str | list[str]] = {"name": name}
     if prompt is not None:
         overrides["system_prompt"] = prompt
     if tools is not None:
         overrides["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
     try:
-        d = api.clone(agent_id, overrides)
+        defn = api.resolve_agent(identifier)
+        d = api.clone(defn.id, overrides)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(1) from e
     click.echo(f"Cloned to '{d.name}' ({d.id})")
-
-
-@registry.command()
-@click.argument("name")
-def install(name: str) -> None:
-    """Install an agent from a source."""
-    click.echo("Install from sources not yet implemented. Use 'create' instead.")

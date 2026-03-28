@@ -6,19 +6,23 @@ definition from a plain-English task description, then registers it.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import subprocess
+import time
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
 from rich.console import Console
+from rich.status import Status
 from rich.table import Table
 
+from swarm.cli._helpers import get_forge, get_registry
 from swarm.cli.launch import launch_claude_session
 from swarm.config import load_config
-from swarm.dirs import ensure_base_dir
-from swarm.forge.api import ForgeAPI
 from swarm.forge.prompts import FORGE_SYSTEM_PROMPT, build_forge_prompt
 
 _FORGE_SESSION_PROMPT = """\
@@ -47,12 +51,6 @@ Your workflow:
 
 Be conversational and help the user iterate on agent designs.
 """
-
-
-def _get_forge() -> ForgeAPI:
-    config = load_config()
-    ensure_base_dir(config.base_dir)
-    return ForgeAPI(config.base_dir / "registry.db", config.base_dir / "forge")
 
 
 @click.group(invoke_without_command=True)
@@ -89,7 +87,7 @@ def design(task: str, name: str | None, dry_run: bool) -> None:
         swarm forge design "summarize Slack threads" --dry-run
     """
     console = Console()
-    api = _get_forge()
+    api = get_forge()
 
     # Gather existing agents for context
     existing = api.suggest_agent("")
@@ -101,7 +99,6 @@ def design(task: str, name: str | None, dry_run: bool) -> None:
     timeout = config.forge_timeout
 
     console.print(f"[bold]Forging agent for:[/bold] {task}")
-    console.print("[dim]Calling Claude...[/dim]")
 
     # Invoke Claude
     claude_cmd = shutil.which("claude")
@@ -120,10 +117,7 @@ def design(task: str, name: str | None, dry_run: bool) -> None:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired as exc:
-        console.print(f"[red]Claude timed out after {timeout}s.[/red]")
-        raise SystemExit(1) from exc
+        result = _run_with_spinner(cmd, timeout, console)
     except FileNotFoundError as exc:
         console.print("[red]Error: claude CLI not found.[/red]")
         raise SystemExit(1) from exc
@@ -191,7 +185,7 @@ def suggest(query: str) -> None:
         swarm forge suggest "testing"
     """
     console = Console()
-    api = _get_forge()
+    api = get_forge()
     results = api.suggest_agent(query)
 
     if not results:
@@ -203,9 +197,31 @@ def suggest(query: str) -> None:
     table.add_column("Name", style="bold")
     table.add_column("ID", style="dim", max_width=12)
     table.add_column("Prompt", max_width=60)
+    table.add_column("Parent", style="dim", max_width=12)
     for a in results:
-        table.add_row(a.name, a.id[:12], a.system_prompt[:60])
+        table.add_row(a.name, a.id[:12], a.system_prompt[:60], (a.parent_id or "")[:12])
     console.print(table)
+
+
+def _run_with_spinner(
+    cmd: list[str], timeout: int, console: Console
+) -> SimpleNamespace:
+    """Run a subprocess with a Rich spinner showing elapsed time."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    start = time.monotonic()
+    with Status("[bold blue]Calling Claude...[/bold blue]", console=console, spinner="dots"):
+        while proc.poll() is None:
+            elapsed = time.monotonic() - start
+            if elapsed > timeout:
+                proc.kill()
+                proc.wait()
+                console.print(f"[red]Claude timed out after {timeout}s.[/red]")
+                raise SystemExit(1)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=1.0)
+    stdout = proc.stdout.read() if proc.stdout else ""
+    stderr = proc.stderr.read() if proc.stderr else ""
+    return SimpleNamespace(returncode=proc.returncode, stdout=stdout, stderr=stderr)
 
 
 def _parse_definition(raw: str) -> dict[str, Any] | None:
@@ -263,3 +279,101 @@ def _normalize(data: dict[str, Any]) -> dict[str, Any]:
     perms = data.get("permissions", [])
     result["permissions"] = list(perms) if isinstance(perms, (list, tuple)) else []
     return result
+
+
+@forge.command()
+@click.argument("identifier")
+def edit(identifier: str) -> None:
+    """Edit an agent's system prompt in $EDITOR.
+
+    Resolves the agent by name or ID, opens the system prompt in your
+    editor, and on save creates a clone with the updated prompt.
+
+    Examples:
+
+        swarm forge edit code-reviewer
+
+        swarm forge edit 3f8a2b1c-...
+    """
+    console = Console()
+    registry = get_registry()
+    api = get_forge()
+    try:
+        defn = registry.resolve_agent(identifier)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise SystemExit(1) from e
+
+    new_prompt = click.edit(defn.system_prompt)
+    if new_prompt is None or new_prompt.strip() == defn.system_prompt.strip():
+        console.print("[dim]No changes.[/dim]")
+        return
+
+    cloned = api.clone_agent(defn.id, {"name": defn.name, "system_prompt": new_prompt.strip()})
+    console.print(f"[bold green]Updated:[/bold green] {cloned.name} ({cloned.id})")
+    console.print(f"[dim]Previous version: {defn.id[:12]}[/dim]")
+
+
+@forge.command("export")
+@click.argument("identifier")
+@click.option("--output", "-o", default=None, type=click.Path(), help="Output file path.")
+def export_agent(identifier: str, output: str | None) -> None:
+    """Export an agent definition to a .agent.json file.
+
+    Exports name, system_prompt, tools, and permissions (no IDs or timestamps).
+
+    Examples:
+
+        swarm forge export code-reviewer
+
+        swarm forge export code-reviewer -o ./my-agent.agent.json
+    """
+    console = Console()
+    registry = get_registry()
+    try:
+        defn = registry.resolve_agent(identifier)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise SystemExit(1) from e
+
+    data = {
+        "name": defn.name,
+        "system_prompt": defn.system_prompt,
+        "tools": list(defn.tools),
+        "permissions": list(defn.permissions),
+    }
+    out_path = Path(output) if output else Path.cwd() / f"{defn.name}.agent.json"
+    out_path.write_text(json.dumps(data, indent=2) + "\n")
+    console.print(f"[bold green]Exported:[/bold green] {out_path}")
+
+
+@forge.command("import")
+@click.argument("path", type=click.Path(exists=True))
+def import_agent(path: str) -> None:
+    """Import an agent definition from a .agent.json file.
+
+    Examples:
+
+        swarm forge import ./code-reviewer.agent.json
+    """
+    console = Console()
+    api = get_forge()
+    try:
+        data = json.loads(Path(path).read_text())
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Error: invalid JSON: {e}[/red]")
+        raise SystemExit(1) from e
+
+    name = data.get("name")
+    system_prompt = data.get("system_prompt")
+    if not name or not system_prompt:
+        console.print("[red]Error: file must contain 'name' and 'system_prompt' fields.[/red]")
+        raise SystemExit(1)
+
+    defn = api.create_agent(
+        name=name,
+        system_prompt=system_prompt,
+        tools=data.get("tools", []),
+        permissions=data.get("permissions", []),
+    )
+    console.print(f"[bold green]Imported:[/bold green] {defn.name} ({defn.id})")

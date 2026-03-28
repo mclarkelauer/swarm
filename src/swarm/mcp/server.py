@@ -19,6 +19,8 @@ from swarm.forge.api import ForgeAPI
 from swarm.mcp import state
 from swarm.mcp.instance import mcp
 from swarm.registry.api import RegistryAPI
+from swarm.registry.sources import SourcePlugin
+from swarm.registry.sources.project import ProjectDirectorySource
 
 
 def main() -> None:
@@ -28,9 +30,15 @@ def main() -> None:
 
     ensure_base_dir(base_dir)
 
+    # Auto-discover project-local agent definitions
+    sources: list[SourcePlugin] = []
+    project_agents = Path(plans_dir) / ".swarm" / "agents"
+    if project_agents.is_dir():
+        sources.append(ProjectDirectorySource(Path(plans_dir)))
+
     # Initialize shared state
     state.registry_api = RegistryAPI(base_dir / "registry.db")
-    state.forge_api = ForgeAPI(base_dir / "registry.db", base_dir / "forge")
+    state.forge_api = ForgeAPI(base_dir / "registry.db", base_dir / "forge", sources=sources)
     state.plans_dir = plans_dir
 
     mcp.run()

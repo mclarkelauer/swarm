@@ -170,6 +170,36 @@ class RegistryAPI:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def resolve_agent(self, identifier: str) -> AgentDefinition:
+        """Resolve an agent by ID or exact name.
+
+        Tries ``get(identifier)`` first (UUID lookup).  On miss, falls
+        back to ``list_agents(name_filter=identifier)`` and picks the
+        exact match.  If there is exactly one result, returns it even
+        without an exact name match (convenience for unambiguous substrings).
+
+        Raises:
+            RegistryError: If the identifier cannot be resolved to
+                exactly one agent.
+        """
+        defn = self.get(identifier)
+        if defn is not None:
+            return defn
+
+        candidates = self.list_agents(name_filter=identifier)
+        # Exact name match wins
+        for c in candidates:
+            if c.name == identifier:
+                return c
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            raise RegistryError(f"Agent '{identifier}' not found")
+        names = ", ".join(c.name for c in candidates)
+        raise RegistryError(
+            f"Ambiguous identifier '{identifier}': matches {names}. Use the full ID."
+        )
+
     def inspect(self, agent_id: str) -> dict[str, object]:
         """Return full detail including the provenance chain."""
         defn = self.get(agent_id)

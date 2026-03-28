@@ -17,10 +17,19 @@ def registry_list() -> str:
 
 
 @mcp.tool()
-def registry_inspect(agent_id: str) -> str:
-    """Get full details on an agent definition including provenance."""
+def registry_inspect(agent_id: str = "", name: str = "") -> str:
+    """Get full details on an agent definition including provenance.
+
+    Supply one of agent_id or name.
+    """
     assert state.registry_api is not None
-    info = state.registry_api.inspect(agent_id)
+    if agent_id:
+        info = state.registry_api.inspect(agent_id)
+    elif name:
+        defn = state.registry_api.resolve_agent(name)
+        info = state.registry_api.inspect(defn.id)
+    else:
+        return json.dumps({"error": "Supply agent_id or name"})
     return json.dumps(info)
 
 
@@ -33,8 +42,14 @@ def registry_search(query: str) -> str:
 
 
 @mcp.tool()
-def registry_remove(agent_id: str) -> str:
-    """Remove an agent definition from the registry."""
+def registry_remove(agent_id: str = "", name: str = "") -> str:
+    """Remove an agent definition from the registry.
+
+    Supply one of agent_id or name.
+    """
     assert state.registry_api is not None
+    if name and not agent_id:
+        defn = state.registry_api.resolve_agent(name)
+        agent_id = defn.id
     removed = state.registry_api.remove(agent_id)
     return json.dumps({"ok": removed, "agent_id": agent_id})

@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
-import click
+from datetime import UTC, datetime
+from pathlib import Path
 
+import click
+from rich.console import Console
+from rich.table import Table
+
+from swarm.cli._helpers import get_registry
 from swarm.cli.forge_cmd import forge
 from swarm.cli.launch import launch_claude_session
 from swarm.cli.mcp_cmd import mcp_config
 from swarm.cli.plan_cmd import plan
 from swarm.cli.registry_cmd import registry
+from swarm.cli.run_cmd import run
+from swarm.cli.sync_cmd import sync
+from swarm.plan.parser import load_plan
+from swarm.plan.versioning import list_versions
 
 _ORCHESTRATOR_PROMPT = """\
 You are the Swarm Orchestrator — the control agent for a swarm of Claude Code \
@@ -110,7 +120,55 @@ def cli(ctx: click.Context) -> None:
         )
 
 
+@cli.command()
+def ls() -> None:
+    """Show agents and active plans in the current directory."""
+    console = Console()
+    has_output = False
+
+    # Agents
+    api = get_registry()
+    agents = api.list_agents()
+    if agents:
+        has_output = True
+        table = Table(title="Agents")
+        table.add_column("Name", style="bold")
+        table.add_column("ID", style="dim", max_width=12)
+        table.add_column("Source")
+        for a in agents:
+            table.add_row(a.name, a.id[:12], a.source)
+        console.print(table)
+
+    # Plans in cwd
+    cwd = Path.cwd()
+    versions = list_versions(cwd)
+    if versions:
+        has_output = True
+        ptable = Table(title=f"Plans in {cwd}")
+        ptable.add_column("Version", style="bold")
+        ptable.add_column("File")
+        ptable.add_column("Goal", max_width=50)
+        ptable.add_column("Steps", justify="right")
+        ptable.add_column("Modified")
+        for v in versions:
+            path = cwd / f"plan_v{v}.json"
+            try:
+                p = load_plan(path)
+                mtime = datetime.fromtimestamp(
+                    path.stat().st_mtime, tz=UTC
+                ).strftime("%Y-%m-%d %H:%M")
+                ptable.add_row(str(v), path.name, p.goal[:50], str(len(p.steps)), mtime)
+            except Exception:
+                ptable.add_row(str(v), path.name, "?", "?", "?")
+        console.print(ptable)
+
+    if not has_output:
+        console.print("[dim]No agents or plans found.[/dim]")
+
+
 cli.add_command(forge)
 cli.add_command(plan)
 cli.add_command(registry)
+cli.add_command(run)
+cli.add_command(sync)
 cli.add_command(mcp_config)
