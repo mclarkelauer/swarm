@@ -1,0 +1,192 @@
+"""High-level Python API for the agent registry."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+
+from swarm.errors import RegistryError
+from swarm.registry.db import init_registry_db
+from swarm.registry.models import AgentDefinition
+
+
+class RegistryAPI:
+    """CRUD operations on the persistent agent registry.
+
+    Args:
+        db_path: Path to the SQLite database file.
+    """
+
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+        self._conn = init_registry_db(db_path)
+
+    # ------------------------------------------------------------------
+    # helpers
+    # ------------------------------------------------------------------
+
+    def _row_to_definition(self, row: tuple[str, ...]) -> AgentDefinition:
+        return AgentDefinition(
+            id=row[0],
+            name=row[1],
+            parent_id=row[2],
+            system_prompt=row[3],
+            tools=tuple(json.loads(row[4])),
+            permissions=tuple(json.loads(row[5])),
+            working_dir=row[6],
+            source=row[7],
+            created_at=row[8],
+        )
+
+    _SELECT_COLS = (
+        "id, name, parent_id, system_prompt, tools, permissions, "
+        "working_dir, source, created_at"
+    )
+
+    # ------------------------------------------------------------------
+    # public API
+    # ------------------------------------------------------------------
+
+    def create(
+        self,
+        name: str,
+        system_prompt: str,
+        tools: list[str],
+        permissions: list[str],
+        working_dir: str = "",
+        source: str = "forge",
+    ) -> AgentDefinition:
+        """Register a new agent definition."""
+        agent_id = str(uuid.uuid4())
+        created_at = datetime.now(tz=UTC).isoformat()
+
+        defn = AgentDefinition(
+            id=agent_id,
+            name=name,
+            system_prompt=system_prompt,
+            tools=tuple(tools),
+            permissions=tuple(permissions),
+            working_dir=working_dir,
+            source=source,
+            created_at=created_at,
+        )
+
+        self._conn.execute(
+            "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
+            "permissions, working_dir, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                defn.id,
+                defn.name,
+                defn.parent_id,
+                defn.system_prompt,
+                json.dumps(list(defn.tools)),
+                json.dumps(list(defn.permissions)),
+                defn.working_dir,
+                defn.source,
+                defn.created_at,
+            ),
+        )
+        self._conn.commit()
+        return defn
+
+    def get(self, agent_id: str) -> AgentDefinition | None:
+        """Retrieve a single agent definition by ID, or ``None``."""
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM agents WHERE id = ?",
+            (agent_id,),
+        )
+        row = cur.fetchone()
+        return self._row_to_definition(row) if row else None
+
+    def list_agents(self, name_filter: str | None = None) -> list[AgentDefinition]:
+        """List agent definitions, optionally filtering by name substring."""
+        if name_filter:
+            cur = self._conn.execute(
+                f"SELECT {self._SELECT_COLS} FROM agents WHERE name LIKE ?",
+                (f"%{name_filter}%",),
+            )
+        else:
+            cur = self._conn.execute(f"SELECT {self._SELECT_COLS} FROM agents")
+        return [self._row_to_definition(r) for r in cur.fetchall()]
+
+    def search(self, query: str) -> list[AgentDefinition]:
+        """Search by substring match on name and system prompt."""
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM agents "
+            "WHERE name LIKE ? OR system_prompt LIKE ?",
+            (f"%{query}%", f"%{query}%"),
+        )
+        return [self._row_to_definition(r) for r in cur.fetchall()]
+
+    def clone(self, agent_id: str, overrides: dict[str, str | list[str]]) -> AgentDefinition:
+        """Clone an existing definition with overrides. Sets ``parent_id``."""
+        original = self.get(agent_id)
+        if original is None:
+            raise RegistryError(f"Cannot clone: agent '{agent_id}' not found")
+
+        data = original.to_dict()
+        data.update(overrides)
+
+        new_id = str(uuid.uuid4())
+        created_at = datetime.now(tz=UTC).isoformat()
+
+        defn = AgentDefinition(
+            id=new_id,
+            name=data["name"],
+            parent_id=agent_id,
+            system_prompt=data["system_prompt"],
+            tools=tuple(data.get("tools", list(original.tools))),
+            permissions=tuple(data.get("permissions", list(original.permissions))),
+            working_dir=data.get("working_dir", original.working_dir),
+            source=original.source,
+            created_at=created_at,
+        )
+
+        self._conn.execute(
+            "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
+            "permissions, working_dir, source, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                defn.id,
+                defn.name,
+                defn.parent_id,
+                defn.system_prompt,
+                json.dumps(list(defn.tools)),
+                json.dumps(list(defn.permissions)),
+                defn.working_dir,
+                defn.source,
+                defn.created_at,
+            ),
+        )
+        self._conn.commit()
+        return defn
+
+    def remove(self, agent_id: str) -> bool:
+        """Remove an agent definition. Returns ``True`` if it existed."""
+        cur = self._conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def inspect(self, agent_id: str) -> dict[str, object]:
+        """Return full detail including the provenance chain."""
+        defn = self.get(agent_id)
+        if defn is None:
+            raise RegistryError(f"Agent '{agent_id}' not found")
+
+        result = defn.to_dict()
+
+        # Walk provenance chain
+        chain: list[dict[str, str]] = []
+        current = defn
+        while current.parent_id:
+            parent = self.get(current.parent_id)
+            if parent is None:
+                break
+            chain.append({"id": parent.id, "name": parent.name})
+            current = parent
+
+        result["provenance_chain"] = chain
+        return result

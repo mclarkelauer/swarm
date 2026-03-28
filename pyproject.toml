@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "swarm"
+version = "0.1.0"
+description = "MCP tool server and agent registry for multi-agent orchestration with Claude Code"
+requires-python = ">=3.13"
+dependencies = [
+    "click>=8.1",
+    "structlog>=24.0",
+    "mcp[cli]>=1.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+swarm = "swarm.cli.main:cli"
+swarm-mcp = "swarm.mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/swarm"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-mock>=3.14",
+    "pytest-cov>=5.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+src = ["src"]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["swarm"]

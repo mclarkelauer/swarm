@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "goal": "Build a web scraper that collects data and generates a report",
+  "variables": {
+    "target_url": "https://example.com",
+    "output_format": "markdown"
+  },
+  "steps": [
+    {
+      "id": "research",
+      "type": "task",
+      "agent_type": "researcher",
+      "prompt": "Analyze {target_url} and identify data extraction patterns"
+    },
+    {
+      "id": "review-research",
+      "type": "checkpoint",
+      "prompt": "Review research findings before building scraper",
+      "depends_on": ["research"],
+      "checkpoint_config": {
+        "message": "Research complete. Review findings before proceeding?"
+      }
+    },
+    {
+      "id": "build-scraper",
+      "type": "task",
+      "agent_type": "developer",
+      "prompt": "Build web scraper based on research findings",
+      "depends_on": ["review-research"]
+    },
+    {
+      "id": "scrape-loop",
+      "type": "loop",
+      "agent_type": "scraper",
+      "prompt": "Execute scraping for next batch of pages",
+      "depends_on": ["build-scraper"],
+      "loop_config": {
+        "condition": "all pages scraped",
+        "max_iterations": 100
+      }
+    },
+    {
+      "id": "generate-report",
+      "type": "task",
+      "agent_type": "writer",
+      "prompt": "Generate {output_format} report from scraped data",
+      "depends_on": ["scrape-loop"]
+    }
+  ]
+}
