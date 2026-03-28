@@ -123,6 +123,39 @@ class TestRemove:
         assert api.remove("nonexistent") is False
 
 
+class TestResolveAgent:
+    def test_resolve_by_id(self, api: RegistryAPI) -> None:
+        d = api.create("researcher", "prompt", [], [])
+        found = api.resolve_agent(d.id)
+        assert found.id == d.id
+
+    def test_resolve_by_exact_name(self, api: RegistryAPI) -> None:
+        d = api.create("researcher", "prompt", [], [])
+        found = api.resolve_agent("researcher")
+        assert found.id == d.id
+
+    def test_resolve_by_substring_unique(self, api: RegistryAPI) -> None:
+        d = api.create("code-reviewer", "prompt", [], [])
+        found = api.resolve_agent("code-review")
+        assert found.id == d.id
+
+    def test_resolve_ambiguous_raises(self, api: RegistryAPI) -> None:
+        api.create("code-reviewer", "prompt", [], [])
+        api.create("code-reviewer-v2", "prompt", [], [])
+        with pytest.raises(RegistryError, match="Ambiguous"):
+            api.resolve_agent("code-review")
+
+    def test_resolve_not_found_raises(self, api: RegistryAPI) -> None:
+        with pytest.raises(RegistryError, match="not found"):
+            api.resolve_agent("nonexistent")
+
+    def test_resolve_exact_name_wins_over_substring(self, api: RegistryAPI) -> None:
+        a = api.create("code-reviewer", "prompt", [], [])
+        api.create("code-reviewer-v2", "prompt", [], [])
+        found = api.resolve_agent("code-reviewer")
+        assert found.id == a.id
+
+
 class TestInspect:
     def test_inspect_returns_details(self, api: RegistryAPI) -> None:
         d = api.create("test", "prompt", ["tool"], ["perm"])

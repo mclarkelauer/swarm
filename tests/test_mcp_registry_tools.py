@@ -43,6 +43,16 @@ class TestRegistryInspect:
         assert result["name"] == "agent"
         assert "provenance_chain" in result
 
+    def test_inspect_by_name(self) -> None:
+        assert state.registry_api is not None
+        state.registry_api.create("named-agent", "prompt", [], [])
+        result = json.loads(registry_inspect(name="named-agent"))
+        assert result["name"] == "named-agent"
+
+    def test_inspect_no_params(self) -> None:
+        result = json.loads(registry_inspect())
+        assert "error" in result
+
 
 class TestRegistrySearch:
     def test_finds_matching(self) -> None:
@@ -63,6 +73,13 @@ class TestRegistryRemove:
         assert state.registry_api is not None
         d = state.registry_api.create("temp", "prompt", [], [])
         result = json.loads(registry_remove(d.id))
+        assert result["ok"] is True
+        assert state.registry_api.get(d.id) is None
+
+    def test_removes_by_name(self) -> None:
+        assert state.registry_api is not None
+        d = state.registry_api.create("named-temp", "prompt", [], [])
+        result = json.loads(registry_remove(name="named-temp"))
         assert result["ok"] is True
         assert state.registry_api.get(d.id) is None
 

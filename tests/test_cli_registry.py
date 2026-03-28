@@ -22,7 +22,7 @@ def runner(tmp_path: Path) -> CliRunner:
 def _mock_config(tmp_path: Path):
     config = SwarmConfig(base_dir=tmp_path / ".swarm")
     ensure_base_dir(config.base_dir)
-    with patch("swarm.cli.registry_cmd.load_config", return_value=config):
+    with patch("swarm.cli._helpers.load_config", return_value=config):
         yield config
 
 
@@ -79,6 +79,12 @@ class TestRegistryInspect:
         assert "Provenance" in result.output
         assert "parent" in result.output
 
+    def test_inspect_by_name(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
+        runner.invoke(cli, ["registry", "create", "--name", "inspector", "--prompt", "p"])
+        result = runner.invoke(cli, ["registry", "inspect", "inspector"])
+        assert result.exit_code == 0
+        assert "inspector" in result.output
+
     def test_inspect_invalid_id(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
         result = runner.invoke(cli, ["registry", "inspect", "nonexistent"])
         assert result.exit_code == 1
@@ -86,6 +92,12 @@ class TestRegistryInspect:
 
 
 class TestRegistryRemove:
+    def test_remove_by_name(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
+        runner.invoke(cli, ["registry", "create", "--name", "temp-agent", "--prompt", "p"])
+        result = runner.invoke(cli, ["registry", "remove", "temp-agent"])
+        assert result.exit_code == 0
+        assert "Removed" in result.output
+
     def test_remove_nonexistent(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
         result = runner.invoke(cli, ["registry", "remove", "nonexistent"])
         assert result.exit_code == 1
@@ -93,6 +105,14 @@ class TestRegistryRemove:
 
 
 class TestRegistryClone:
+    def test_clone_by_name(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
+        runner.invoke(cli, ["registry", "create", "--name", "base-agent", "--prompt", "p"])
+        result = runner.invoke(
+            cli, ["registry", "clone", "base-agent", "--name", "derived"]
+        )
+        assert result.exit_code == 0
+        assert "derived" in result.output
+
     def test_clone_invalid_id(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
         result = runner.invoke(cli, ["registry", "clone", "nonexistent", "--name", "x"])
         assert result.exit_code == 1
@@ -141,10 +161,3 @@ class TestRegistrySearch:
         result = runner.invoke(cli, ["registry", "search", "zzzzz"])
         assert result.exit_code == 0
         assert "No agents" in result.output
-
-
-class TestRegistryInstall:
-    def test_install_stub(self, runner: CliRunner, _mock_config: SwarmConfig) -> None:
-        result = runner.invoke(cli, ["registry", "install", "something"])
-        assert result.exit_code == 0
-        assert "not yet implemented" in result.output

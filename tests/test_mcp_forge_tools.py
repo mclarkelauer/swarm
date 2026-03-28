@@ -94,6 +94,18 @@ class TestForgeClone:
         assert cloned["permissions"] == ["write"]
 
 
+class TestForgeCloneByName:
+    def test_clone_by_source_name(self) -> None:
+        forge_create("base-agent", "Base prompt.", '["Read"]', '[]')
+        cloned = json.loads(forge_clone(source_name="base-agent", name="derived"))
+        assert cloned["name"] == "derived"
+        assert cloned["system_prompt"] == "Base prompt."
+
+    def test_clone_no_source(self) -> None:
+        result = json.loads(forge_clone())
+        assert "error" in result
+
+
 class TestForgeSuggest:
     def test_finds_matching(self) -> None:
         forge_create("code-reviewer", "Reviews code quality.")
