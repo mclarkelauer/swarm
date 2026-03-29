@@ -72,6 +72,137 @@ Definitions are immutable. Modifications create clones with provenance chain. Cl
 
 ---
 
+## Base Agent Catalog
+
+Swarm ships with **66 base agents** across three domains (technical, general, business) designed to be cloned and specialized for project-specific needs. The catalog is immutable and seeded on first launch.
+
+### Three Domains
+
+| Domain | Count | Subcategories |
+|--------|-------|----------------|
+| **Technical** | 24 | Discovery (4), Design (3), Implementation (2), Testing (3), Security & Performance (3), Documentation (2), Infrastructure (3), Meta (2) |
+| **General** | 28 | Planning (7), Analysis (6), Communication (7), Learning (4), Finance & Legal (4) |
+| **Business** | 14 | Startup & Strategy (5), Sales & Marketing (4), Operations & Finance (5) |
+
+### Agent Catalog
+
+#### Technical Domain (24 agents)
+
+| Agent | Description |
+|-------|-------------|
+| `code-researcher` | Explores codebases, reads files, traces dependencies, gathers technical context |
+| `online-researcher` | Searches the web, reads documentation sites, synthesizes findings from online sources |
+| `requirements-analyst` | Breaks goals into structured requirements and acceptance criteria |
+| `code-analyzer` | Static analysis — reads code structure, dependencies, complexity metrics |
+| `architect` | Designs system structure, data models, APIs, component boundaries |
+| `planner` | Creates step-by-step implementation plans with dependencies and risks |
+| `data-modeler` | Designs data schemas, entity relationships, normalization, serialization formats |
+| `implementer` | Writes production code following specs and designs |
+| `refactorer` | Improves code structure without changing behavior |
+| `test-writer` | Creates comprehensive test suites (unit, integration, e2e) |
+| `code-reviewer` | Reviews code for quality, bugs, patterns, readability |
+| `debugger` | Diagnoses and fixes bugs from error reports and failing tests |
+| `security-auditor` | Reviews code for security vulnerabilities and best practices |
+| `performance-analyst` | Identifies bottlenecks and optimization opportunities |
+| `accessibility-auditor` | WCAG compliance, screen reader testing, keyboard navigation, color contrast |
+| `technical-writer` | Creates documentation, guides, API references |
+| `summarizer` | Synthesizes outputs from multiple agents into actionable reports |
+| `devops-engineer` | Infrastructure, deployment pipelines, CI/CD, monitoring setup |
+| `incident-responder` | Triage, root cause diagnosis, stakeholder comms, post-mortems |
+| `ops-automator` | Designs automation for repetitive tasks — scripts, schedules, triggers, monitoring |
+| `critic` | Reviews any agent's output for quality, completeness, accuracy |
+| `prompt-engineer` | Crafts, tests, and iterates on LLM prompts — structure, few-shot examples, guardrails |
+| `ux-analyst` | Evaluates user flows, identifies friction points, proposes UX improvements |
+| `compliance-checker` | Evaluates work against standards, regulations, and policies — flags violations |
+
+#### General Domain (28 agents)
+
+| Agent | Description |
+|-------|-------------|
+| `strategic-planner` | Long-term goal setting, milestones, priority frameworks, progress tracking |
+| `event-planner` | Event logistics — timelines, checklists, venues, vendors, contingencies |
+| `project-coordinator` | Task breakdown, timelines, dependency tracking, status reporting, delegation |
+| `workflow-designer` | Designs multi-step processes, SOPs, automation sequences, handoff points |
+| `prioritizer` | Ranks items by impact, effort, urgency, and dependencies — cuts scope ruthlessly |
+| `estimator` | Provides time/cost/effort estimates with confidence ranges and assumption lists |
+| `change-manager` | Plans organizational/technical change — stakeholder mapping, communication plans, rollout phases |
+| `decision-analyst` | Structured decision-making — pros/cons matrices, risk weighting, scenario analysis |
+| `risk-assessor` | Identifies risks, scores likelihood/impact, proposes mitigations, tracks residual risk |
+| `competitor-analyst` | Competitive landscape mapping, feature comparison, positioning, SWOT |
+| `business-analyst` | Process mapping, requirements gathering, stakeholder alignment, gap analysis |
+| `data-interpreter` | Reads data (CSVs, tables, reports), finds patterns, explains trends in plain language |
+| `fact-checker` | Verifies claims against sources, flags unsupported assertions, rates confidence |
+| `creative-writer` | Versatile writing — narratives, copy, speeches, pitches, tone adaptation |
+| `communication-drafter` | Emails, messages, announcements, difficult conversations, tone calibration |
+| `editor` | Proofreading, style consistency, clarity improvement, tone adjustment, brevity |
+| `presentation-designer` | Slide structure, visual hierarchy, storytelling flow, audience calibration |
+| `translator` | Translates content between languages preserving tone, idiom, and domain terminology |
+| `negotiation-strategist` | Prepares negotiation positions — BATNA, anchoring, concession planning, scripts |
+| `mediator` | Resolves conflicts between competing viewpoints — finds common ground, proposes compromises |
+| `tutor` | Explains concepts at the right level, asks comprehension questions, scaffolds learning |
+| `learning-designer` | Study plans, skill roadmaps, curriculum sequencing, knowledge gap analysis |
+| `coach` | Motivational guidance, accountability, habit formation, mindset, progress celebration |
+| `interviewer` | Conducts structured interviews — asks questions, follows up, evaluates responses |
+| `financial-analyst` | Budgets, cost analysis, forecasting, ROI, comparison shopping |
+| `contract-reviewer` | Reads contracts/agreements, flags risks, summarizes terms, suggests amendments |
+| `advisor` | General counsel with structured reasoning — weighs trade-offs, asks clarifying questions |
+| `brainstormer` | Ideation, lateral thinking, option generation, mind mapping, "what if" exploration |
+
+#### Business Domain (14 agents)
+
+| Agent | Description |
+|-------|-------------|
+| `business-plan-writer` | Business plans — executive summary, market analysis, financial projections, competitive positioning |
+| `brand-designer` | Brand identity — naming, positioning, voice/tone guidelines, taglines, visual direction briefs |
+| `investor-relations-manager` | Pitch materials, investor updates, cap table explanation, fundraising timeline, due diligence prep |
+| `growth-strategist` | Scaling playbooks, unit economics, growth levers, market expansion, partnership strategy |
+| `product-manager` | Feature prioritization, roadmapping, user story writing, stakeholder alignment, launch planning |
+| `sales-strategist` | Sales pipelines, outreach strategy, qualification frameworks, objection handling, close techniques |
+| `marketing-strategist` | Channel selection, campaign design, funnel optimization, messaging, audience segmentation |
+| `customer-researcher` | Customer interviews, persona development, journey mapping, pain point identification, NPS analysis |
+| `customer-success-manager` | Retention strategy, satisfaction surveys, feedback loops, churn analysis, upsell identification |
+| `operations-manager` | Process design, efficiency optimization, vendor management, quality control, capacity planning |
+| `bookkeeper` | Transaction categorization, reconciliation, financial statements, cash flow tracking |
+| `tax-strategist` | Tax-advantaged structures, deduction maximization, quarterly planning, entity-type implications |
+| `hr-manager` | Hiring, onboarding, policies, handbook drafting, compliance, performance management |
+| `legal-advisor` | Entity formation, contract basics, IP protection, regulatory requirements, liability reduction |
+
+### Specialization Ladder
+
+The catalog enables a three-level specialization strategy:
+
+1. **Base Agent** — General-purpose agent (e.g., `code-reviewer`)
+2. **Domain-Specific Clone** — Narrowed to a specific domain or technology (e.g., `python-reviewer`, `api-contract-reviewer`)
+3. **Project-Specific Clone** — Further customized for a project's tools, standards, and workflows
+
+### How Specialization Works
+
+When cloning a base agent to create a specialization:
+
+1. `forge_clone(source_id, name, system_prompt, ...)` creates a new agent with the same tools, tags, and notes
+2. System prompts use specialization hooks (`[DOMAIN-SPECIFIC: ...]`) so customization is additive:
+   - `[DOMAIN-SPECIFIC: Python type hints and PEP8]` → specialized prompt fills this in
+   - Unknown hooks are left intact, enabling multi-level inheritance
+3. Clones are independent — modifications don't affect the base agent
+4. Usage counts reset to 0 on clone, but notes are preserved
+
+### Seeding & Source Plugins
+
+- **Auto-seed on first launch**: When Swarm initializes, if `registry.db` is empty, it loads all 66 base agents with `source="catalog"` and deterministic UUIDs
+- **Read-only source plugin**: The `CatalogSource` plugin provides fuzzy search over base agents without requiring a separate API
+- **Parent-update flagging**: When a new Swarm release updates a base agent, clones are flagged in `registry_inspect` output so users know their customization may be outdated
+
+### Catalog CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `swarm catalog list` | List all 66 base agents |
+| `swarm catalog search <query>` | Fuzzy search base agents by name or tags |
+| `swarm catalog inspect <name>` | Full details of a base agent |
+| `swarm catalog clone <name> <new-name>` | Clone a base agent to start specializing |
+
+---
+
 ## Agent Registry
 
 Persistent SQLite database at `~/.swarm/registry.db`.

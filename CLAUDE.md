@@ -21,6 +21,7 @@ Swarm is an MCP server (`swarm-mcp`) that Claude Code connects to. The CLI (`swa
 
 Key subsystems:
 - **Forge** (`src/swarm/forge/`) — create, clone, search, export/import, annotate agent definitions
+- **Catalog** (`src/swarm/catalog/`) — 66 base agents, seeding, CLI, source plugin
 - **Registry** (`src/swarm/registry/`) — persistent SQLite agent catalog with source plugins
 - **Plan** (`src/swarm/plan/`) — DAG-based execution plans with conditions, fan-out, critic loops, templates, versioning
 - **MCP Server** (`src/swarm/mcp/`) — 30 FastMCP tools for forge, plan, registry, artifacts, discovery
@@ -29,9 +30,14 @@ Key subsystems:
 Key modules:
 - `forge/frontmatter.py` — YAML frontmatter parser/renderer for Claude Code subagent `.md` files
 - `forge/ranking.py` — Semantic re-ranking (LLM-agnostic) for agent suggestion
+- `catalog/seed.py` — Automatic base agent seeding on first launch
+- `catalog/technical.py` — 24 technical domain base agents
+- `catalog/general.py` — 28 general-purpose domain base agents
+- `catalog/business.py` — 14 business domain base agents
 - `plan/conditions.py` — Conditional step gating (artifact_exists, step_completed, step_failed)
 - `plan/templates.py` — Plan template system with built-in templates
 - `mcp/discovery_tools.py` — Lightweight agent catalog browsing
+- `cli/catalog_cmd.py` — Catalog list/search/inspect/clone commands
 
 ## Conventions
 - Use `pathlib.Path` throughout, never string paths
@@ -49,12 +55,16 @@ Key modules:
 ## Running
 ```bash
 uv sync                              # install deps
-uv run pytest tests/ -v              # run all tests (753 tests)
+uv run pytest tests/ -v              # run all tests (~820 tests including catalog)
 uv run ruff check src/               # lint
 uv run mypy src/                     # type check (strict)
 uv run swarm --help                  # CLI entry point
 uv run swarm                         # launch orchestrator Claude session
 uv run swarm forge                   # launch forge Claude session
+uv run swarm catalog list            # list all 66 base agents
+uv run swarm catalog search "python" # search base agents
+uv run swarm catalog inspect code-reviewer  # full details of a base agent
+uv run swarm catalog clone code-reviewer my-reviewer  # clone a base agent
 uv run swarm run --latest --dry-run  # preview plan execution waves
 uv run swarm status --diagnose       # failure analysis for current run
 ```

@@ -42,6 +42,35 @@ swarm mcp-config                 # print MCP config for manual setup
 - [uv](https://docs.astral.sh/uv/) package manager
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 
+## Base Agent Catalog
+
+Swarm ships with **66 curated base agents** across three domains — Technical (24), General (28), and Business (14) — ready to clone and specialize for your projects.
+
+Instead of designing agents from scratch, start with a base agent and customize it:
+
+```bash
+# List all base agents
+swarm catalog list
+
+# Search for an agent
+swarm catalog search "code review"
+
+# Clone a base agent to customize it
+swarm catalog clone code-reviewer python-code-reviewer
+```
+
+### Example Base Agents
+
+**Technical**: `architect`, `code-reviewer`, `test-writer`, `security-auditor`, `devops-engineer`, `technical-writer`
+
+**General**: `project-coordinator`, `business-analyst`, `financial-analyst`, `creative-writer`, `decision-analyst`, `coach`
+
+**Business**: `product-manager`, `sales-strategist`, `marketing-strategist`, `growth-strategist`, `operations-manager`
+
+Once cloned, specialize the agent by refining the system prompt, adding domain-specific tools, and tuning performance. The feedback loop tracks usage and failures, so specialized agents improve over time.
+
+For the full catalog with all 66 agents and 174 specialization examples, see [design.md](design.md#base-agent-catalog).
+
 ## How It Works
 
 ```
