@@ -15,10 +15,11 @@ build/
 .ruff_cache/
 htmlcov/
 
-# Throng runtime data
+# Swarm runtime data
 *.db
 artifacts.json
 plan_v*.json
+run_log.json
 
 # IDE
 .idea/
