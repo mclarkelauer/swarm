@@ -15,7 +15,7 @@ git clone <repo-url> && cd swarm
 swarm
 ```
 
-That's it. You're in a Claude Code session with 30 MCP tools for agent management, plan building, and execution. Describe your goal and the orchestrator will:
+That's it. You're in a Claude Code session with 31 MCP tools for agent management, plan building, and execution. Describe your goal and the orchestrator will:
 
 1. Discover existing agents and suggest matches (`swarm_discover`, `forge_suggest_ranked`)
 2. Create specialized agents with focused system prompts, descriptions, and tags
@@ -55,8 +55,8 @@ swarm catalog list
 # Search for an agent
 swarm catalog search "code review"
 
-# Clone a base agent to customize it
-swarm catalog clone code-reviewer python-code-reviewer
+# Show details and specialization guidance
+swarm catalog show code-reviewer
 ```
 
 ### Example Base Agents
@@ -69,7 +69,7 @@ swarm catalog clone code-reviewer python-code-reviewer
 
 Once cloned, specialize the agent by refining the system prompt, adding domain-specific tools, and tuning performance. The feedback loop tracks usage and failures, so specialized agents improve over time.
 
-For the full catalog with all 66 agents and 174 specialization examples, see [design.md](design.md#base-agent-catalog).
+For the full catalog with all 66 agents, see [design.md](design.md#base-agent-catalog).
 
 ## How It Works
 
@@ -79,7 +79,7 @@ For the full catalog with all 66 agents and 174 specialization examples, see [de
   v
 Claude Code (orchestrator)
   |
-  ├── Swarm MCP Server (30 tools)
+  ├── Swarm MCP Server (31 tools)
   |     ├── Discovery    — swarm_discover, forge_suggest_ranked
   |     ├── Forge        — create, clone, export, import, annotate agents
   |     ├── Plan         — templates, create, amend, execute, retrospective
@@ -136,16 +136,23 @@ swarm registry create               Create a new agent definition
 swarm registry clone <id>           Clone with overrides
 swarm registry remove <id>          Remove an agent
 
+swarm catalog                       List all base agents (alias for catalog list)
+swarm catalog list                  List base agents grouped by domain
+swarm catalog search <query>        Search base agents by name, description, or tags
+swarm catalog show <name>           Full details and specialization notes
+swarm catalog seed                  Manually seed/refresh base agents in registry
+
 swarm sync                          Import .swarm/agents/ into registry
 swarm mcp-config                    Print MCP server config for Claude Code
 ```
 
-## MCP Tools (30 total)
+## MCP Tools (31 total)
 
 ### Discover & Select Agents
 | Tool | Description |
 |------|-------------|
 | `swarm_discover` | Lightweight catalog: name + description + tags + usage stats |
+| `forge_suggest` | Search registry + source plugins for matching agents |
 | `forge_suggest_ranked` | Semantic ranking with LLM re-ranking prompt |
 | `forge_get` | Full agent definition by ID or name |
 | `forge_list` | All definitions (system_prompt truncated to 80 chars) |
@@ -207,11 +214,11 @@ Plans are JSON files defining a DAG of steps:
     {"id": "review-design", "type": "checkpoint",
      "prompt": "Review design", "depends_on": ["design"],
      "checkpoint_config": {"message": "Review design.md before implementing."}},
-    {"id": "implement", "type": "task", "agent_type": "backend-developer",
+    {"id": "implement", "type": "task", "agent_type": "implementer",
      "prompt": "Implement per design.md", "depends_on": ["review-design"],
      "required_inputs": ["design.md"], "output_artifact": "impl-complete",
      "critic_agent": "code-reviewer", "max_critic_iterations": 3},
-    {"id": "test", "type": "task", "agent_type": "test-automator",
+    {"id": "test", "type": "task", "agent_type": "test-writer",
      "prompt": "Write tests", "depends_on": ["implement"],
      "spawn_mode": "background", "on_failure": "retry"}
   ]
@@ -243,14 +250,11 @@ Plans are JSON files defining a DAG of steps:
 ### Built-in Templates
 
 ```bash
-# List available templates
-swarm plan list-templates    # (via MCP: plan_template_list)
-
-# Instantiate
-# (via MCP: plan_template_instantiate with variables)
+# List and instantiate templates via MCP tools in a Claude session:
+# plan_template_list, plan_template_instantiate
 ```
 
-Ships with: `code-review`, `feature-build`, `security-audit`.
+Ships with 6 templates: `business-plan`, `code-review`, `feature-build`, `hiring-pipeline`, `product-launch`, `security-audit`.
 
 ## Agent Definition
 
@@ -300,7 +304,7 @@ Agents can also be exported to Claude Code's native `.claude/agents/<name>.md` f
 
 ```bash
 uv sync                          # Install dependencies
-uv run pytest tests/ -v          # Run tests (753 tests)
+uv run pytest tests/ -v          # Run tests (863 tests)
 uv run ruff check src/           # Lint
 uv run mypy src/                 # Type check (strict)
 ```

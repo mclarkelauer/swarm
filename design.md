@@ -1,6 +1,6 @@
 # Swarm
 
-Swarm is an MCP tool server and agent registry for multi-agent orchestration with Claude Code. It provides 30 MCP tools for designing specialized agents, managing a persistent agent catalog, building DAG-based execution plans, and closing the feedback loop — all accessible inside a Claude Code session.
+Swarm is an MCP tool server and agent registry for multi-agent orchestration with Claude Code. It provides 31 MCP tools for designing specialized agents, managing a persistent agent catalog, building DAG-based execution plans, and closing the feedback loop — all accessible inside a Claude Code session.
 
 ## Architecture
 
@@ -188,18 +188,18 @@ When cloning a base agent to create a specialization:
 
 ### Seeding & Source Plugins
 
-- **Auto-seed on first launch**: When Swarm initializes, if `registry.db` is empty, it loads all 66 base agents with `source="catalog"` and deterministic UUIDs
-- **Read-only source plugin**: The `CatalogSource` plugin provides fuzzy search over base agents without requiring a separate API
-- **Parent-update flagging**: When a new Swarm release updates a base agent, clones are flagged in `registry_inspect` output so users know their customization may be outdated
+- **Auto-seed on every launch**: `seed_base_agents()` runs on every `swarm` launch (idempotent). It inserts new agents, updates changed prompts, and skips unchanged ones.
+- **Deterministic UUIDs**: Base agents use `uuid5(NAMESPACE_DNS, "swarm-catalog-{name}")` for stable IDs across installs.
+- **Parent-update flagging**: When a new Swarm release updates a base agent's prompt, existing clones (tracked via `parent_id`) get a `[PARENT UPDATED]` notice appended to their `notes` field.
 
 ### Catalog CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `swarm catalog list` | List all 66 base agents |
-| `swarm catalog search <query>` | Fuzzy search base agents by name or tags |
-| `swarm catalog inspect <name>` | Full details of a base agent |
-| `swarm catalog clone <name> <new-name>` | Clone a base agent to start specializing |
+| `swarm catalog list` | List all 66 base agents grouped by domain |
+| `swarm catalog search <query>` | Search base agents by name, description, or tags |
+| `swarm catalog show <name>` | Full details of a base agent + specialization notes |
+| `swarm catalog seed` | Manually trigger catalog seeding |
 
 ---
 
@@ -276,8 +276,11 @@ Plans are JSON files defining a DAG of tasks with dependencies, checkpoints, con
 
 ### Templates
 Built-in templates at `src/swarm/plan/builtin_templates/`:
+- `business-plan` — research, personas, plan writing, financial modeling, review
 - `code-review` — analyze, review, summarize, approve
 - `feature-build` — design, approve, implement, test, review, approve
+- `hiring-pipeline` — compensation research, job posting, interview design, onboarding
+- `product-launch` — audience validation, MVP scope, marketing, comms, timeline
 - `security-audit` — scan, analyze, report, review, approve
 
 User templates in `~/.swarm/templates/` override built-ins on name collision.
@@ -312,13 +315,13 @@ User templates in `~/.swarm/templates/` override built-ins on name collision.
 
 ## MCP Server
 
-The `swarm-mcp` server provides all 30 tools to Claude Code sessions.
+The `swarm-mcp` server provides all 31 tools to Claude Code sessions.
 
 ### Environment Variables
 - `SWARM_BASE_DIR` — root Swarm directory (default: `~/.swarm`)
 - `SWARM_PLANS_DIR` — directory for plan files (default: current working directory)
 
-### Tools Summary (30 tools)
+### Tools Summary (31 tools)
 | Category | Tools |
 |----------|-------|
 | Discovery | `swarm_discover` |
@@ -373,6 +376,10 @@ Single file: `~/.swarm/config.json`
 | `swarm forge edit <name>` | Edit agent prompt in $EDITOR (creates clone) |
 | `swarm forge export <name>` | Export to .agent.json file |
 | `swarm forge import <file>` | Import from .agent.json file |
+| `swarm catalog list` | List all 66 base agents grouped by domain |
+| `swarm catalog search <query>` | Search base agents by name, description, or tags |
+| `swarm catalog show <name>` | Full details + specialization notes |
+| `swarm catalog seed` | Manually seed/refresh base agents in registry |
 | `swarm plan validate <file>` | Validate a plan JSON file |
 | `swarm plan list` | List plan versions |
 | `swarm plan show <file>` | Display plan structure |
