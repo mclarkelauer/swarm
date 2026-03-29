@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from swarm.plan.dag import detect_cycles, get_ready_steps, topological_sort
@@ -140,3 +142,143 @@ class TestGetReadySteps:
         )
         ready = get_ready_steps(plan, set())
         assert {s.id for s in ready} == {"a", "b", "c"}
+
+
+class TestGetReadyStepsWithConditions:
+    def test_condition_never_step_not_ready(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+        )
+        ready = get_ready_steps(plan, set())
+        assert ready == []
+
+    def test_condition_always_step_is_ready(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="always"),
+        )
+        ready = get_ready_steps(plan, set())
+        assert [s.id for s in ready] == ["a"]
+
+    def test_condition_step_completed_satisfied(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w"),
+            PlanStep(
+                id="b",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                condition="step_completed:a",
+            ),
+        )
+        ready = get_ready_steps(plan, {"a"})
+        assert any(s.id == "b" for s in ready)
+
+    def test_condition_step_completed_not_satisfied(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w"),
+            PlanStep(
+                id="b",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                condition="step_completed:a",
+            ),
+        )
+        # a is not completed yet — b's condition blocks it
+        ready = get_ready_steps(plan, set())
+        ready_ids = {s.id for s in ready}
+        assert "b" not in ready_ids
+
+    def test_step_outcomes_parameter_passed_through(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w"),
+            PlanStep(
+                id="b",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                condition="step_failed:a",
+            ),
+        )
+        # a is in completed and also marked failed in outcomes
+        outcomes = {"a": "failed"}
+        ready = get_ready_steps(plan, {"a"}, step_outcomes=outcomes)
+        assert any(s.id == "b" for s in ready)
+
+    def test_step_outcomes_none_blocks_step_failed_condition(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w"),
+            PlanStep(
+                id="b",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                condition="step_failed:a",
+            ),
+        )
+        # Without outcomes, step_failed evaluates to False
+        ready = get_ready_steps(plan, {"a"}, step_outcomes=None)
+        ready_ids = {s.id for s in ready}
+        assert "b" not in ready_ids
+
+    def test_condition_never_does_not_block_other_steps(self) -> None:
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+            PlanStep(id="b", type="task", prompt="p", agent_type="w"),
+        )
+        ready = get_ready_steps(plan, set())
+        ready_ids = {s.id for s in ready}
+        assert "a" not in ready_ids
+        assert "b" in ready_ids
+
+
+class TestGetReadyStepsWithArtifactsDir:
+    def test_get_ready_steps_with_artifacts_dir_satisfied(self, tmp_path: Path) -> None:
+        (tmp_path / "input.md").write_text("content", encoding="utf-8")
+        plan = _plan(
+            PlanStep(
+                id="a",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                required_inputs=("input.md",),
+            ),
+        )
+        ready = get_ready_steps(plan, set(), artifacts_dir=tmp_path)
+        assert [s.id for s in ready] == ["a"]
+
+    def test_get_ready_steps_with_artifacts_dir_missing(self, tmp_path: Path) -> None:
+        # "input.md" is NOT created in tmp_path
+        plan = _plan(
+            PlanStep(
+                id="a",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                required_inputs=("input.md",),
+            ),
+        )
+        ready = get_ready_steps(plan, set(), artifacts_dir=tmp_path)
+        assert ready == []
+
+    def test_get_ready_steps_without_artifacts_dir_skips_check(self, tmp_path: Path) -> None:
+        # File does not exist, but no artifacts_dir is provided — step should be ready
+        plan = _plan(
+            PlanStep(
+                id="a",
+                type="task",
+                prompt="p",
+                agent_type="w",
+                required_inputs=("nonexistent.md",),
+            ),
+        )
+        ready = get_ready_steps(plan, set(), artifacts_dir=None)
+        assert [s.id for s in ready] == ["a"]
+
+    def test_get_ready_steps_no_required_inputs_with_artifacts_dir(self, tmp_path: Path) -> None:
+        # Step has no required_inputs; artifacts_dir provided but irrelevant
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w"),
+        )
+        ready = get_ready_steps(plan, set(), artifacts_dir=tmp_path)
+        assert [s.id for s in ready] == ["a"]

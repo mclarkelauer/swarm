@@ -118,6 +118,163 @@ class TestValidatePlan:
         assert errors == []
 
 
+class TestValidatePlanNewFields:
+    def test_validate_invalid_on_failure(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test goal",
+            steps=[
+                PlanStep(
+                    id="s1",
+                    type="task",
+                    prompt="do work",
+                    agent_type="worker",
+                    on_failure="crash",  # invalid value
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("on_failure" in e and "crash" in e for e in errors)
+
+    def test_validate_invalid_spawn_mode(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test goal",
+            steps=[
+                PlanStep(
+                    id="s1",
+                    type="task",
+                    prompt="do work",
+                    agent_type="worker",
+                    spawn_mode="detached",  # invalid value
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("spawn_mode" in e and "detached" in e for e in errors)
+
+    def test_validate_empty_required_input(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test goal",
+            steps=[
+                PlanStep(
+                    id="s1",
+                    type="task",
+                    prompt="do work",
+                    agent_type="worker",
+                    required_inputs=("valid.md", ""),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("empty" in e.lower() and "required_inputs" in e for e in errors)
+
+    def test_validate_valid_on_failure_values(self) -> None:
+        for value in ("stop", "skip", "retry"):
+            plan = Plan(
+                version=1,
+                goal="test goal",
+                steps=[
+                    PlanStep(
+                        id="s1",
+                        type="task",
+                        prompt="do work",
+                        agent_type="worker",
+                        on_failure=value,
+                    ),
+                ],
+            )
+            errors = validate_plan(plan)
+            on_failure_errors = [e for e in errors if "on_failure" in e]
+            assert on_failure_errors == [], f"on_failure='{value}' should be valid but got: {on_failure_errors}"
+
+    def test_validate_valid_spawn_mode_values(self) -> None:
+        for value in ("foreground", "background"):
+            plan = Plan(
+                version=1,
+                goal="test goal",
+                steps=[
+                    PlanStep(
+                        id="s1",
+                        type="task",
+                        prompt="do work",
+                        agent_type="worker",
+                        spawn_mode=value,
+                    ),
+                ],
+            )
+            errors = validate_plan(plan)
+            spawn_errors = [e for e in errors if "spawn_mode" in e]
+            assert spawn_errors == [], f"spawn_mode='{value}' should be valid but got: {spawn_errors}"
+
+
+class TestValidatePlanConditions:
+    def test_invalid_condition_produces_error(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test goal",
+            steps=[
+                PlanStep(
+                    id="s1",
+                    type="task",
+                    prompt="do work",
+                    agent_type="worker",
+                    condition="unknown_format_xyz",
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("s1" in e for e in errors)
+        assert len(errors) > 0
+
+    def test_known_prefix_with_empty_value_produces_error(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test goal",
+            steps=[
+                PlanStep(
+                    id="s1",
+                    type="task",
+                    prompt="do work",
+                    agent_type="worker",
+                    condition="artifact_exists:",
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("s1" in e for e in errors)
+
+    def test_valid_conditions_produce_no_errors(self) -> None:
+        valid_conditions = [
+            "",
+            "always",
+            "never",
+            "artifact_exists:output.md",
+            "step_completed:s0",
+            "step_failed:s0",
+        ]
+        for cond in valid_conditions:
+            plan = Plan(
+                version=1,
+                goal="test goal",
+                steps=[
+                    PlanStep(
+                        id="s1",
+                        type="task",
+                        prompt="do work",
+                        agent_type="worker",
+                        condition=cond,
+                    ),
+                ],
+            )
+            errors = validate_plan(plan)
+            condition_errors = [e for e in errors if "condition" in e.lower() or "Unknown" in e]
+            assert condition_errors == [], (
+                f"condition='{cond}' should be valid but got errors: {condition_errors}"
+            )
+
+
 class TestSavePlan:
     def test_saves_with_version(self, tmp_path: Path, sample_plan: Plan) -> None:
         path = save_plan(sample_plan, tmp_path)

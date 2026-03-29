@@ -37,6 +37,9 @@ class ForgeAPI:
         system_prompt: str,
         tools: list[str],
         permissions: list[str],
+        description: str = "",
+        tags: list[str] | None = None,
+        notes: str = "",
     ) -> AgentDefinition:
         """Create and register a new agent definition.
 
@@ -48,12 +51,15 @@ class ForgeAPI:
             tools=tools,
             permissions=permissions,
             source="forge",
+            description=description,
+            tags=tags,
+            notes=notes,
         )
         write_cache(self._cache_dir, defn)
         return defn
 
     def clone_agent(
-        self, source_id: str, overrides: dict[str, str | list[str]]
+        self, source_id: str, overrides: dict[str, str | int | list[str]]
     ) -> AgentDefinition:
         """Clone an existing agent with overrides. Maintains provenance."""
         defn = self._registry.clone(source_id, overrides)

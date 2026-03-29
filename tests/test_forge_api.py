@@ -67,6 +67,18 @@ class TestCreateAgent:
         assert found is not None
         assert found.id == d.id
 
+    def test_create_agent_with_description_and_tags(self, forge: ForgeAPI) -> None:
+        d = forge.create_agent(
+            "py-reviewer",
+            "Reviews Python code.",
+            [],
+            [],
+            description="Checks Python style",
+            tags=["python", "review"],
+        )
+        assert d.description == "Checks Python style"
+        assert d.tags == ("python", "review")
+
 
 class TestCloneAgent:
     def test_clone_preserves_provenance(self, forge: ForgeAPI) -> None:

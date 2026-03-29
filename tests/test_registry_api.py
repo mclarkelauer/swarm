@@ -156,6 +156,175 @@ class TestResolveAgent:
         assert found.id == a.id
 
 
+class TestDescriptionAndTags:
+    def test_create_with_description_and_tags(self, api: RegistryAPI) -> None:
+        d = api.create(
+            "py-reviewer",
+            "Reviews Python code.",
+            [],
+            [],
+            description="Reviews Python code",
+            tags=["python", "review"],
+        )
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.description == "Reviews Python code"
+        assert retrieved.tags == ("python", "review")
+
+    def test_clone_preserves_description_and_tags(self, api: RegistryAPI) -> None:
+        original = api.create(
+            "base-agent",
+            "Base prompt.",
+            [],
+            [],
+            description="Base description",
+            tags=["base", "tag"],
+        )
+        clone = api.clone(original.id, {"name": "clone-agent"})
+        assert clone.description == "Base description"
+        assert clone.tags == ("base", "tag")
+
+    def test_clone_overrides_description_and_tags(self, api: RegistryAPI) -> None:
+        original = api.create(
+            "base-agent",
+            "Base prompt.",
+            [],
+            [],
+            description="Original description",
+            tags=["original"],
+        )
+        clone = api.clone(
+            original.id,
+            {
+                "name": "clone-agent",
+                "description": "Overridden description",
+                "tags": ["new", "tags"],
+            },
+        )
+        assert clone.description == "Overridden description"
+        assert clone.tags == ("new", "tags")
+
+    def test_search_matches_description(self, api: RegistryAPI) -> None:
+        api.create(
+            "schema-auditor",
+            "Audits things.",
+            [],
+            [],
+            description="database schema auditor",
+        )
+        api.create("unrelated", "Does something else.", [], [])
+        results = api.search("database")
+        assert len(results) == 1
+        assert results[0].name == "schema-auditor"
+
+    def test_search_matches_tags(self, api: RegistryAPI) -> None:
+        api.create(
+            "sec-auditor",
+            "Audits security.",
+            [],
+            [],
+            tags=["security", "audit"],
+        )
+        api.create("writer", "Writes docs.", [], [])
+        results = api.search("security")
+        assert len(results) == 1
+        assert results[0].name == "sec-auditor"
+
+    def test_create_without_description_tags_uses_defaults(self, api: RegistryAPI) -> None:
+        d = api.create("minimal-agent", "Does stuff.", [], [])
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.description == ""
+        assert retrieved.tags == ()
+
+
+class TestPerformanceMetadata:
+    def test_create_with_notes(self, api: RegistryAPI) -> None:
+        d = api.create("agent-with-notes", "Does stuff.", [], [], notes="Learned: needs retries")
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.notes == "Learned: needs retries"
+
+    def test_create_defaults_zero_counts_and_empty_strings(self, api: RegistryAPI) -> None:
+        d = api.create("bare", "prompt", [], [])
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.usage_count == 0
+        assert retrieved.failure_count == 0
+        assert retrieved.last_used == ""
+        assert retrieved.notes == ""
+
+    def test_to_dict_includes_performance_fields(self, api: RegistryAPI) -> None:
+        d = api.create("agent", "prompt", [], [], notes="some notes")
+        data = d.to_dict()
+        assert "usage_count" in data
+        assert "failure_count" in data
+        assert "last_used" in data
+        assert "notes" in data
+        assert data["usage_count"] == 0
+        assert data["failure_count"] == 0
+        assert data["notes"] == "some notes"
+
+    def test_from_dict_roundtrip_with_performance_fields(self, api: RegistryAPI) -> None:
+        d = api.create("agent", "prompt", [], [], notes="roundtrip note")
+        data = d.to_dict()
+        restored = d.from_dict(data)
+        assert restored.usage_count == 0
+        assert restored.failure_count == 0
+        assert restored.last_used == ""
+        assert restored.notes == "roundtrip note"
+
+    def test_from_dict_backward_compat_missing_fields(self) -> None:
+        """from_dict must work on old dicts that lack the new fields."""
+        from swarm.registry.models import AgentDefinition
+        old_dict = {
+            "id": "old-id",
+            "name": "old-agent",
+            "system_prompt": "old prompt",
+        }
+        defn = AgentDefinition.from_dict(old_dict)
+        assert defn.usage_count == 0
+        assert defn.failure_count == 0
+        assert defn.last_used == ""
+        assert defn.notes == ""
+
+    def test_clone_resets_counts_preserves_notes(self, api: RegistryAPI) -> None:
+        original = api.create(
+            "original", "prompt", [], [],
+            notes="important lesson from production"
+        )
+        clone = api.clone(original.id, {"name": "cloned"})
+        assert clone.usage_count == 0
+        assert clone.failure_count == 0
+        assert clone.last_used == ""
+        assert clone.notes == "important lesson from production"
+
+    def test_clone_notes_can_be_overridden(self, api: RegistryAPI) -> None:
+        original = api.create("original", "prompt", [], [], notes="old lesson")
+        clone = api.clone(original.id, {"name": "cloned", "notes": "new lesson"})
+        assert clone.notes == "new lesson"
+
+    def test_clone_resets_counts_even_when_original_had_counts(self, api: RegistryAPI) -> None:
+        """Even if the original had non-zero counts (future feature), clone starts fresh."""
+        original = api.create("original", "prompt", [], [])
+        # Directly update the DB to simulate non-zero counts on the original
+        api._conn.execute(
+            "UPDATE agents SET usage_count=50, failure_count=5 WHERE id=?",
+            (original.id,),
+        )
+        api._conn.commit()
+        clone = api.clone(original.id, {"name": "derived"})
+        assert clone.usage_count == 0
+        assert clone.failure_count == 0
+
+    def test_search_still_works_with_new_columns(self, api: RegistryAPI) -> None:
+        api.create("searcher", "Handles searching.", [], [], notes="tested in prod")
+        api.create("writer", "Writes documents.", [], [])
+        results = api.search("search")
+        assert len(results) == 1
+        assert results[0].name == "searcher"
+
+
 class TestInspect:
     def test_inspect_returns_details(self, api: RegistryAPI) -> None:
         d = api.create("test", "prompt", ["tool"], ["perm"])

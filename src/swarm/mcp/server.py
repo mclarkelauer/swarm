@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Import tool modules for side-effect registration
 import swarm.mcp.artifact_tools as _artifact_tools  # noqa: F401
+import swarm.mcp.discovery_tools as _discovery_tools  # noqa: F401
 import swarm.mcp.forge_tools as _forge_tools  # noqa: F401
 import swarm.mcp.plan_tools as _plan_tools  # noqa: F401
 import swarm.mcp.registry_tools as _registry_tools  # noqa: F401

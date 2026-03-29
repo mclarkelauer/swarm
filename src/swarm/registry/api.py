@@ -38,11 +38,18 @@ class RegistryAPI:
             working_dir=row[6],
             source=row[7],
             created_at=row[8],
+            description=row[9],
+            tags=tuple(json.loads(row[10])),
+            usage_count=int(row[11]),
+            failure_count=int(row[12]),
+            last_used=row[13],
+            notes=row[14],
         )
 
     _SELECT_COLS = (
         "id, name, parent_id, system_prompt, tools, permissions, "
-        "working_dir, source, created_at"
+        "working_dir, source, created_at, description, tags, "
+        "usage_count, failure_count, last_used, notes"
     )
 
     # ------------------------------------------------------------------
@@ -57,10 +64,14 @@ class RegistryAPI:
         permissions: list[str],
         working_dir: str = "",
         source: str = "forge",
+        description: str = "",
+        tags: list[str] | None = None,
+        notes: str = "",
     ) -> AgentDefinition:
         """Register a new agent definition."""
         agent_id = str(uuid.uuid4())
         created_at = datetime.now(tz=UTC).isoformat()
+        resolved_tags: list[str] = tags if tags is not None else []
 
         defn = AgentDefinition(
             id=agent_id,
@@ -69,14 +80,18 @@ class RegistryAPI:
             tools=tuple(tools),
             permissions=tuple(permissions),
             working_dir=working_dir,
+            description=description,
+            tags=tuple(resolved_tags),
             source=source,
             created_at=created_at,
+            notes=notes,
         )
 
         self._conn.execute(
             "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
-            "permissions, working_dir, source, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "permissions, working_dir, source, created_at, description, tags, "
+            "usage_count, failure_count, last_used, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 defn.id,
                 defn.name,
@@ -87,6 +102,12 @@ class RegistryAPI:
                 defn.working_dir,
                 defn.source,
                 defn.created_at,
+                defn.description,
+                json.dumps(list(defn.tags)),
+                defn.usage_count,
+                defn.failure_count,
+                defn.last_used,
+                defn.notes,
             ),
         )
         self._conn.commit()
@@ -113,16 +134,22 @@ class RegistryAPI:
         return [self._row_to_definition(r) for r in cur.fetchall()]
 
     def search(self, query: str) -> list[AgentDefinition]:
-        """Search by substring match on name and system prompt."""
+        """Search by substring match on name, system prompt, description, and tags."""
+        pattern = f"%{query}%"
         cur = self._conn.execute(
             f"SELECT {self._SELECT_COLS} FROM agents "
-            "WHERE name LIKE ? OR system_prompt LIKE ?",
-            (f"%{query}%", f"%{query}%"),
+            "WHERE name LIKE ? OR system_prompt LIKE ? OR description LIKE ? OR tags LIKE ?",
+            (pattern, pattern, pattern, pattern),
         )
         return [self._row_to_definition(r) for r in cur.fetchall()]
 
-    def clone(self, agent_id: str, overrides: dict[str, str | list[str]]) -> AgentDefinition:
-        """Clone an existing definition with overrides. Sets ``parent_id``."""
+    def clone(self, agent_id: str, overrides: dict[str, str | int | list[str]]) -> AgentDefinition:
+        """Clone an existing definition with overrides. Sets ``parent_id``.
+
+        Performance counter overrides (``usage_count``, ``failure_count``,
+        ``last_used``) are respected when present.  All other counters default
+        to zero / empty so that fresh clones start clean.
+        """
         original = self.get(agent_id)
         if original is None:
             raise RegistryError(f"Cannot clone: agent '{agent_id}' not found")
@@ -141,14 +168,23 @@ class RegistryAPI:
             tools=tuple(data.get("tools", list(original.tools))),
             permissions=tuple(data.get("permissions", list(original.permissions))),
             working_dir=data.get("working_dir", original.working_dir),
+            description=data.get("description", original.description),
+            tags=tuple(data.get("tags", list(original.tags))),
             source=original.source,
             created_at=created_at,
+            # Performance counters: use explicit override value when provided,
+            # otherwise start fresh at 0/"" (standard clone behaviour).
+            usage_count=int(overrides["usage_count"]) if "usage_count" in overrides else 0,  # type: ignore[arg-type]
+            failure_count=int(overrides["failure_count"]) if "failure_count" in overrides else 0,  # type: ignore[arg-type]
+            last_used=str(overrides["last_used"]) if "last_used" in overrides else "",
+            notes=data.get("notes", original.notes),
         )
 
         self._conn.execute(
             "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
-            "permissions, working_dir, source, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "permissions, working_dir, source, created_at, description, tags, "
+            "usage_count, failure_count, last_used, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 defn.id,
                 defn.name,
@@ -159,6 +195,12 @@ class RegistryAPI:
                 defn.working_dir,
                 defn.source,
                 defn.created_at,
+                defn.description,
+                json.dumps(list(defn.tags)),
+                defn.usage_count,
+                defn.failure_count,
+                defn.last_used,
+                defn.notes,
             ),
         )
         self._conn.commit()

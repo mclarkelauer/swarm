@@ -45,6 +45,8 @@ class ProjectDirectorySource(SourcePlugin):
                     system_prompt=data["system_prompt"],
                     tools=tuple(data.get("tools", [])),
                     permissions=tuple(data.get("permissions", [])),
+                    description=data.get("description", ""),
+                    tags=tuple(data.get("tags", [])),
                     source="project",
                 )
                 results.append(defn)

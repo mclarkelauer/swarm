@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from swarm.forge.cache import read_cache, write_cache
@@ -51,3 +52,45 @@ class TestWriteAndReadCache:
         result = read_cache(tmp_path, "test-agent")
         assert result is not None
         assert result.id == "new-id"
+
+
+class TestCacheNewFields:
+    def test_cache_roundtrip_with_new_fields(self, tmp_path: Path) -> None:
+        defn = AgentDefinition(
+            id="rich-id",
+            name="rich-agent",
+            system_prompt="Rich prompt.",
+            tools=("bash",),
+            permissions=("read",),
+            source="forge",
+            created_at="2024-01-01T00:00:00",
+            description="A well-described agent",
+            tags=("python", "review"),
+        )
+        write_cache(tmp_path, defn)
+        result = read_cache(tmp_path, "rich-agent")
+        assert result is not None
+        assert result.description == "A well-described agent"
+        assert result.tags == ("python", "review")
+
+    def test_cache_read_old_format(self, tmp_path: Path) -> None:
+        # Manually write a cache file that has no description or tags keys
+        old_data = {
+            "id": "old-id",
+            "name": "old-agent",
+            "parent_id": None,
+            "system_prompt": "Old prompt.",
+            "tools": [],
+            "permissions": [],
+            "working_dir": "",
+            "source": "forge",
+            "created_at": "2024-01-01T00:00:00",
+            # description and tags intentionally absent
+        }
+        (tmp_path / "old-agent.json").write_text(
+            json.dumps(old_data), encoding="utf-8"
+        )
+        result = read_cache(tmp_path, "old-agent")
+        assert result is not None
+        assert result.description == ""
+        assert result.tags == ()

@@ -71,6 +71,101 @@ class TestPlanConstruction:
         assert plan.variables == {}
 
 
+class TestPlanStepNewFields:
+    def test_plan_step_new_fields_roundtrip(self) -> None:
+        step = PlanStep(
+            id="s1",
+            type="task",
+            prompt="do work",
+            agent_type="worker",
+            output_artifact="out.md",
+            required_inputs=("in1.md", "in2.md"),
+            on_failure="retry",
+            spawn_mode="background",
+        )
+        restored = PlanStep.from_dict(step.to_dict())
+        assert restored.output_artifact == "out.md"
+        assert restored.required_inputs == ("in1.md", "in2.md")
+        assert restored.on_failure == "retry"
+        assert restored.spawn_mode == "background"
+
+    def test_plan_step_defaults(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="do work")
+        assert step.output_artifact == ""
+        assert step.required_inputs == ()
+        assert step.on_failure == "stop"
+        assert step.spawn_mode == "foreground"
+
+    def test_plan_step_sparse_serialization(self) -> None:
+        step = PlanStep(
+            id="s1",
+            type="task",
+            prompt="do work",
+            agent_type="worker",
+            # All new fields at their defaults
+            output_artifact="",
+            required_inputs=(),
+            on_failure="stop",
+            spawn_mode="foreground",
+        )
+        d = step.to_dict()
+        assert "output_artifact" not in d
+        assert "required_inputs" not in d
+        assert "on_failure" not in d
+        assert "spawn_mode" not in d
+
+    def test_plan_step_from_dict_backward_compat(self) -> None:
+        # A dict that represents an old-format step (missing all new fields)
+        old_dict = {
+            "id": "legacy-step",
+            "type": "task",
+            "prompt": "do legacy work",
+            "agent_type": "worker",
+        }
+        step = PlanStep.from_dict(old_dict)
+        assert step.output_artifact == ""
+        assert step.required_inputs == ()
+        assert step.on_failure == "stop"
+        assert step.spawn_mode == "foreground"
+
+
+class TestPlanStepConditionField:
+    def test_condition_roundtrip(self) -> None:
+        step = PlanStep(
+            id="s1",
+            type="task",
+            prompt="do work",
+            agent_type="worker",
+            condition="step_completed:s0",
+        )
+        restored = PlanStep.from_dict(step.to_dict())
+        assert restored.condition == "step_completed:s0"
+
+    def test_condition_sparse_serialization_empty_omitted(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", agent_type="w", condition="")
+        d = step.to_dict()
+        assert "condition" not in d
+
+    def test_condition_sparse_serialization_nonempty_included(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", agent_type="w", condition="never")
+        d = step.to_dict()
+        assert d["condition"] == "never"
+
+    def test_condition_from_dict_backward_compat_missing_defaults_to_empty(self) -> None:
+        old_dict = {
+            "id": "legacy-step",
+            "type": "task",
+            "prompt": "do legacy work",
+            "agent_type": "worker",
+        }
+        step = PlanStep.from_dict(old_dict)
+        assert step.condition == ""
+
+    def test_condition_default_is_empty_string(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p")
+        assert step.condition == ""
+
+
 class TestJsonRoundTrip:
     def test_plan_step_round_trip(self) -> None:
         step = PlanStep(

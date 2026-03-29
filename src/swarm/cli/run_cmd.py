@@ -10,14 +10,50 @@ from rich.console import Console
 from rich.table import Table
 
 from swarm.plan.dag import get_ready_steps
+from swarm.plan.models import Plan, PlanStep
 from swarm.plan.parser import load_plan, validate_plan
 from swarm.plan.run_log import RunLog, StepOutcome, load_run_log, write_run_log
 
+_STEP_TYPE_COLORS: dict[str, str] = {
+    "task": "cyan",
+    "checkpoint": "yellow",
+    "loop": "magenta",
+}
+
+
+def _compute_waves(plan: Plan) -> list[list[PlanStep]]:
+    """Return steps grouped into parallel execution waves.
+
+    Wave N contains every step whose dependencies are all satisfied by
+    the steps in waves 0 … N-1.
+    """
+    waves: list[list[PlanStep]] = []
+    completed: set[str] = set()
+    remaining = {s.id for s in plan.steps}
+
+    while remaining:
+        wave = get_ready_steps(plan, completed)
+        # get_ready_steps only returns steps not already completed; filter to
+        # those still unassigned to a wave (should always be the same set here
+        # since completed tracks exactly the assigned steps).
+        wave = [s for s in wave if s.id in remaining]
+        if not wave:
+            # Shouldn't happen with a valid, acyclic plan — guard against it.
+            break
+        waves.append(wave)
+        for s in wave:
+            completed.add(s.id)
+            remaining.discard(s.id)
+
+    return waves
+
 
 @click.command()
-@click.argument("path", type=click.Path(exists=True))
+@click.argument("path", type=click.Path(), required=False, default=None)
+@click.option("--latest", is_flag=True, help="Auto-select the highest version plan in cwd.")
 @click.option("--completed", default="", help="Comma-separated completed step IDs to resume from.")
-def run(path: str, completed: str) -> None:
+@click.option("--dry-run", is_flag=True, help="Print execution wave table and exit without prompting.")
+def run(path: str | None, latest: bool, completed: str, dry_run: bool) -> None:
     """Walk a plan's DAG interactively, step by step.
 
     Loads the plan, walks the DAG using dependency resolution, shows each
@@ -30,10 +66,33 @@ def run(path: str, completed: str) -> None:
 
         swarm run plan_v1.json
 
+        swarm run --latest
+
         swarm run plan_v1.json --completed s1,s2
+
+        swarm run plan_v1.json --dry-run
     """
     console = Console()
-    plan_path = Path(path)
+
+    if path is None and not latest:
+        console.print("[red]Error: provide a plan path or use --latest.[/red]")
+        raise SystemExit(1)
+
+    if latest:
+        from swarm.plan.versioning import list_versions
+
+        cwd = Path.cwd()
+        versions = list_versions(cwd)
+        if not versions:
+            console.print("[red]Error: no plan_v*.json files found in current directory.[/red]")
+            raise SystemExit(1)
+        plan_path = cwd / f"plan_v{versions[-1]}.json"
+    else:
+        plan_path = Path(path)  # type: ignore[arg-type]
+        if not plan_path.exists():
+            console.print(f"[red]Error: {plan_path} does not exist.[/red]")
+            raise SystemExit(1)
+
     p = load_plan(plan_path)
 
     errors = validate_plan(p)
@@ -42,6 +101,37 @@ def run(path: str, completed: str) -> None:
         for err in errors:
             console.print(f"  - {err}")
         raise SystemExit(1)
+
+    if dry_run:
+        waves = _compute_waves(p)
+
+        table = Table(title="Execution Plan (dry-run)", show_lines=True)
+        table.add_column("Wave", style="bold", justify="right")
+        table.add_column("Step ID", style="bold")
+        table.add_column("Agent")
+        table.add_column("Type")
+        table.add_column("Spawn Mode")
+
+        for wave_num, wave_steps in enumerate(waves, start=1):
+            for step in wave_steps:
+                color = _STEP_TYPE_COLORS.get(step.type, "white")
+                table.add_row(
+                    str(wave_num),
+                    step.id,
+                    step.agent_type or "-",
+                    f"[{color}]{step.type}[/{color}]",
+                    step.spawn_mode,
+                )
+
+        console.print(table)
+
+        total_steps = sum(len(w) for w in waves)
+        max_parallel = max((len(w) for w in waves), default=0)
+        console.print(
+            f"[bold]{total_steps} step(s) in {len(waves)} wave(s).[/bold] "
+            f"Up to [bold]{max_parallel}[/bold] step(s) can run in parallel."
+        )
+        return
 
     log_path = plan_path.parent / "run_log.json"
     completed_set = {s.strip() for s in completed.split(",") if s.strip()}

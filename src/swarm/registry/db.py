@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -22,18 +23,37 @@ def init_registry_db(path: Path) -> sqlite3.Connection:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agents (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            parent_id   TEXT,
+            id            TEXT PRIMARY KEY,
+            name          TEXT NOT NULL,
+            parent_id     TEXT,
             system_prompt TEXT NOT NULL DEFAULT '',
-            tools       TEXT NOT NULL DEFAULT '[]',
-            permissions TEXT NOT NULL DEFAULT '[]',
-            working_dir TEXT NOT NULL DEFAULT '',
-            source      TEXT NOT NULL DEFAULT 'forge',
-            created_at  TEXT NOT NULL DEFAULT '',
+            tools         TEXT NOT NULL DEFAULT '[]',
+            permissions   TEXT NOT NULL DEFAULT '[]',
+            working_dir   TEXT NOT NULL DEFAULT '',
+            source        TEXT NOT NULL DEFAULT 'forge',
+            created_at    TEXT NOT NULL DEFAULT '',
+            description   TEXT NOT NULL DEFAULT '',
+            tags          TEXT NOT NULL DEFAULT '[]',
+            usage_count   INTEGER NOT NULL DEFAULT 0,
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            last_used     TEXT NOT NULL DEFAULT '',
+            notes         TEXT NOT NULL DEFAULT '',
             FOREIGN KEY (parent_id) REFERENCES agents(id)
         )
         """
     )
+    for col, default in [
+        ("description", "''"),
+        ("tags", "'[]'"),
+        ("usage_count", "0"),
+        ("failure_count", "0"),
+        ("last_used", "''"),
+        ("notes", "''"),
+    ]:
+        with contextlib.suppress(sqlite3.OperationalError):
+            col_type = "INTEGER" if default == "0" else "TEXT"
+            conn.execute(
+                f"ALTER TABLE agents ADD COLUMN {col} {col_type} NOT NULL DEFAULT {default}"
+            )
     conn.commit()
     return conn
