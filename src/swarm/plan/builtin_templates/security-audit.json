@@ -3,10 +3,10 @@
   "goal": "Security audit: {description}",
   "variables": {"description": "", "project_dir": "."},
   "steps": [
-    {"id": "scan", "type": "task", "agent_type": "security-scanner", "prompt": "Scan {project_dir} for security vulnerabilities related to: {description}", "output_artifact": "scan-results.md"},
-    {"id": "analyze", "type": "task", "agent_type": "security-analyst", "prompt": "Analyze scan results and assess severity of findings.", "depends_on": ["scan"], "required_inputs": ["scan-results.md"], "output_artifact": "analysis.md"},
-    {"id": "report", "type": "task", "agent_type": "technical-writer", "prompt": "Write a security audit report with findings and remediation recommendations.", "depends_on": ["analyze"], "required_inputs": ["analysis.md"], "output_artifact": "security-report.md"},
-    {"id": "review", "type": "task", "agent_type": "security-reviewer", "prompt": "Review the security report for completeness and accuracy.", "depends_on": ["report"], "required_inputs": ["security-report.md"]},
+    {"id": "scan", "type": "task", "agent_type": "security-auditor", "prompt": "Scan {project_dir} for security vulnerabilities related to: {description}. Use static analysis tools, check dependencies for known CVEs, and identify common vulnerability patterns (injection, auth flaws, misconfigurations, insecure defaults).", "output_artifact": "scan-results.md"},
+    {"id": "analyze", "type": "task", "agent_type": "security-auditor", "prompt": "Analyze the scan results at scan-results.md. Assess severity (Critical/High/Medium/Low) for each finding using CVSS scoring. Identify root causes, attack vectors, and exploitability. Group findings by category and prioritize remediation order.", "depends_on": ["scan"], "required_inputs": ["scan-results.md"], "output_artifact": "analysis.md"},
+    {"id": "report", "type": "task", "agent_type": "technical-writer", "prompt": "Write a security audit report from analysis.md with an executive summary, prioritized findings table, per-finding details (description, severity, evidence, remediation steps), and a remediation roadmap.", "depends_on": ["analyze"], "required_inputs": ["analysis.md"], "output_artifact": "security-report.md"},
+    {"id": "review", "type": "task", "agent_type": "code-reviewer", "prompt": "Review the security report at security-report.md with a security lens. Verify that remediation recommendations follow secure coding best practices, that no findings have been understated, and that the report is actionable for the engineering team.", "depends_on": ["report"], "required_inputs": ["security-report.md"]},
     {"id": "approve", "type": "checkpoint", "prompt": "Approve security audit", "depends_on": ["review"], "checkpoint_config": {"message": "Review security-report.md. Approve to complete audit."}}
   ]
 }

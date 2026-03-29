@@ -10,6 +10,7 @@ from rich.console import Console
 from rich.table import Table
 
 from swarm.cli._helpers import get_registry
+from swarm.cli.catalog_cmd import catalog
 from swarm.cli.forge_cmd import forge
 from swarm.cli.launch import launch_claude_session
 from swarm.cli.mcp_cmd import mcp_config
@@ -37,13 +38,13 @@ WHEN THE USER DESCRIBES A GOAL:
 distinct SKILLS does this require? Each skill = one agent.
 3. For each skill, check the registry. Present the user with a table like:
 
-   Skill needed         | Registry match?        | Action
+   Skill needed         | Base agent to clone    | Action
    ---------------------|------------------------|---------------------------
-   Security auditing    | "security-scanner" (82% match) | Reuse or clone?
-   API design           | No match               | Create "api-designer"
-   Test generation      | "test-writer" (partial) | Clone as "api-test-writer"
-   Code review          | "code-reviewer" (good)  | Reuse as-is
-   Documentation        | No match               | Create "api-documenter"
+   Python security scan | "security-auditor"     | Clone as "python-security-auditor"
+   API design           | "architect"            | Clone as "api-architect"
+   Django tests         | "test-writer"          | Clone as "django-test-writer"
+   Code review          | "code-reviewer"        | Reuse as-is (good match)
+   Documentation        | "technical-writer"     | Clone as "api-documenter"
 
 4. For each "No match" row, propose a new agent: name, one-line role, and why \
 it's needed. Ask the user: "Should I create these agents?"
@@ -133,6 +134,80 @@ EXECUTE & MONITOR:
 REGISTRY (low-level):
 - registry_list, registry_inspect, registry_search, registry_remove
 
+BASE AGENT CATALOG:
+
+Swarm ships with 66 base agents across three domains:
+- Technical (e.g., code-reviewer, security-auditor, architect, test-writer, \
+debugger, data-engineer)
+- General (e.g., researcher, analyst, summarizer, strategic-planner, \
+technical-writer, critic)
+- Business (e.g., product-manager, project-planner, risk-analyst, \
+stakeholder-communicator, product-launch-planner)
+
+Base agents are intentionally broad. They are designed to be SPECIALIZED, \
+not used as-is. Think of them as the foundation, not the finish line.
+
+THE SPECIALIZATION LADDER:
+Every agent you create should live at the right level of specificity:
+
+  Level 1 — Base agent (ships with Swarm, general-purpose)
+      e.g., "code-reviewer"
+  Level 2 — Domain-specialized (clone + add domain knowledge)
+      e.g., "python-security-reviewer" — adds Python idioms, OWASP Top 10, \
+common CVE patterns
+  Level 3 — Project-specific (clone + add project context)
+      e.g., "django-api-security-reviewer" — adds Django ORM pitfalls, \
+project auth model, internal coding standards
+
+Always push specialization as deep as the task warrants. A Level 3 agent \
+produces better output than a Level 1 agent on a focused task, every time.
+
+ALWAYS CHECK THE BASE CATALOG FIRST:
+Before creating an agent from scratch, ALWAYS:
+1. Call swarm_discover with the skill description to find the closest base agent
+2. Show the user the top match and its description
+3. Propose cloning it with specific overrides rather than starting from scratch
+4. Only build from scratch if no base agent is within reach of the required skill
+
+Cloning preserves the base agent's methodology, output format, and quality \
+standards. Specialization adds the domain depth. This is always faster and \
+more consistent than writing a new agent from nothing.
+
+CONCRETE SPECIALIZATION EXAMPLES:
+
+Example 1 — Technical specialization:
+  Base:        "code-reviewer" — reviews code for correctness, style, \
+maintainability
+  Specialized: "python-security-reviewer"
+    Added: Python-specific vulnerability patterns (SQL injection via f-strings, \
+pickle deserialization, subprocess shell=True)
+    Added: OWASP Top 10 mapped to Python frameworks
+    Added: Focus on Django/Flask auth and session handling
+    Narrowed: Output limited to security findings only, severity-ranked
+
+Example 2 — Business specialization:
+  Base:        "strategic-planner" — builds structured plans with milestones \
+and risk assessment
+  Specialized: "product-launch-planner"
+    Added: Launch-specific milestone taxonomy (alpha/beta/GA gates)
+    Added: Go-to-market checklist items (press, docs, pricing, support readiness)
+    Added: Post-launch success metrics and rollback criteria
+    Narrowed: Output follows a launch plan template, not a generic project plan
+
+Example 3 — Domain + project specialization:
+  Base:        "data-engineer" — designs pipelines, schemas, and ETL flows
+  Specialized: "billing-pipeline-engineer"
+    Added: Stripe webhook schema knowledge
+    Added: Idempotency requirements for payment events
+    Added: Project-specific warehouse schema (internal context)
+    Narrowed: Only designs billing-related ingestion paths
+
+SPECIALIZATION HOOKS:
+Base agent system prompts contain `[DOMAIN-SPECIFIC: ...]` markers that \
+indicate where specialization should be injected. When cloning, look for \
+these markers and replace them with concrete domain knowledge. Do not leave \
+placeholder markers in the final specialized agent prompt.
+
 WORKFLOW BEST PRACTICES:
 - Use swarm_discover first (cheap, no prompts) before forge_list (expensive)
 - Use forge_suggest_ranked for better agent matching
@@ -215,6 +290,7 @@ def ls() -> None:
         console.print("[dim]No agents or plans found.[/dim]")
 
 
+cli.add_command(catalog)
 cli.add_command(forge)
 cli.add_command(plan)
 cli.add_command(registry)

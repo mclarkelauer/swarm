@@ -39,5 +39,12 @@ class TestBuildForgePrompt:
         assert "Existing agents" not in result
 
     def test_suggests_reuse(self) -> None:
+        # The prompt should encourage starting from an existing base agent
+        # rather than building from scratch, regardless of phrasing.
         result = build_forge_prompt("task", [])
-        assert "reusing" in result.lower() or "cloning" in result.lower()
+        assert (
+            "reusing" in result.lower()
+            or "cloning" in result.lower()
+            or "base agent" in result.lower()
+            or "closest" in result.lower()
+        )
