@@ -9,8 +9,10 @@ from pathlib import Path
 
 import click
 
+from swarm.catalog.seed import seed_base_agents
 from swarm.config import load_config
 from swarm.dirs import ensure_base_dir
+from swarm.registry.api import RegistryAPI
 
 
 def _resolve_mcp_cmd() -> str:
@@ -108,6 +110,14 @@ def launch_claude_session(
 
     config = load_config()
     ensure_base_dir(config.base_dir)
+
+    # Seed the base agent catalog before launching — idempotent, fast when current.
+    try:
+        registry = RegistryAPI(config.base_dir / "registry.db")
+        seed_base_agents(registry)
+    except Exception:
+        # Never block session launch due to a seeding failure.
+        pass
 
     claude_cmd = _resolve_claude_cmd()
     mcp_cmd = _resolve_mcp_cmd()
