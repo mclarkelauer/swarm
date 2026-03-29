@@ -1,14 +1,14 @@
 # Swarm — Project Instructions
 
 ## What is Swarm
-Swarm is an MCP tool server and agent registry that extends Claude Code for multi-agent orchestration. It provides tools for designing specialized agents, managing an agent catalog, and building DAG-based execution plans — all accessible as MCP tools inside a Claude Code session.
+Swarm is an MCP tool server and agent registry that extends Claude Code for multi-agent orchestration. It provides 30 MCP tools for designing specialized agents, managing a persistent agent catalog, building DAG-based execution plans with conditions and parallel execution, and closing the feedback loop — all accessible inside a Claude Code session.
 
 ## Tech Stack
 - **Language**: Python 3.13+
 - **Package manager**: uv
 - **Build system**: hatchling via pyproject.toml
 - **Project layout**: `src/swarm/` (src layout)
-- **Testing**: pytest + pytest-asyncio + pytest-mock + pytest-cov
+- **Testing**: pytest + pytest-asyncio + pytest-mock + pytest-cov (753 tests)
 - **Linting**: ruff
 - **Typing**: mypy strict mode
 - **MCP framework**: mcp[cli] with FastMCP
@@ -20,11 +20,18 @@ Swarm is an MCP tool server and agent registry that extends Claude Code for mult
 Swarm is an MCP server (`swarm-mcp`) that Claude Code connects to. The CLI (`swarm`) can either launch an interactive Claude session with tools attached or run CRUD commands directly.
 
 Key subsystems:
-- **Forge** (`src/swarm/forge/`) — create, clone, search agent definitions
+- **Forge** (`src/swarm/forge/`) — create, clone, search, export/import, annotate agent definitions
 - **Registry** (`src/swarm/registry/`) — persistent SQLite agent catalog with source plugins
-- **Plan** (`src/swarm/plan/`) — DAG-based execution plans with versioning
-- **MCP Server** (`src/swarm/mcp/`) — FastMCP tools for forge, plan, registry, artifacts
+- **Plan** (`src/swarm/plan/`) — DAG-based execution plans with conditions, fan-out, critic loops, templates, versioning
+- **MCP Server** (`src/swarm/mcp/`) — 30 FastMCP tools for forge, plan, registry, artifacts, discovery
 - **CLI** (`src/swarm/cli/`) — Click commands + Claude session launcher
+
+Key modules:
+- `forge/frontmatter.py` — YAML frontmatter parser/renderer for Claude Code subagent `.md` files
+- `forge/ranking.py` — Semantic re-ranking (LLM-agnostic) for agent suggestion
+- `plan/conditions.py` — Conditional step gating (artifact_exists, step_completed, step_failed)
+- `plan/templates.py` — Plan template system with built-in templates
+- `mcp/discovery_tools.py` — Lightweight agent catalog browsing
 
 ## Conventions
 - Use `pathlib.Path` throughout, never string paths
@@ -32,15 +39,22 @@ Key subsystems:
 - Frozen dataclasses for immutable data models
 - Type annotations on all public functions
 - Tests go in `tests/` mirroring the src structure
-- SQLite databases use WAL mode
-- Agent definitions are immutable — modifications create clones with provenance
+- SQLite databases use WAL mode with idempotent ALTER TABLE migrations
+- Agent definitions are immutable — modifications create clones with provenance (`parent_id` chain)
+- Clone resets `usage_count`/`failure_count` to 0 but preserves `notes`
 - MCP tools accept string params and return JSON strings
+- PlanStep uses sparse serialization in `to_dict()` — only non-default fields are emitted
+- Plan templates use `{variable}` interpolation with safe regex replacement (unknown placeholders left intact)
 
 ## Running
 ```bash
-uv sync                    # install deps
-uv run pytest tests/ -v    # run all tests
-uv run swarm --help       # CLI entry point
-uv run swarm              # launch orchestrator Claude session
-uv run swarm forge        # launch forge Claude session
+uv sync                              # install deps
+uv run pytest tests/ -v              # run all tests (753 tests)
+uv run ruff check src/               # lint
+uv run mypy src/                     # type check (strict)
+uv run swarm --help                  # CLI entry point
+uv run swarm                         # launch orchestrator Claude session
+uv run swarm forge                   # launch forge Claude session
+uv run swarm run --latest --dry-run  # preview plan execution waves
+uv run swarm status --diagnose       # failure analysis for current run
 ```
