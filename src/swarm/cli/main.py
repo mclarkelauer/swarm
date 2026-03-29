@@ -16,6 +16,7 @@ from swarm.cli.mcp_cmd import mcp_config
 from swarm.cli.plan_cmd import plan
 from swarm.cli.registry_cmd import registry
 from swarm.cli.run_cmd import run
+from swarm.cli.status_cmd import status
 from swarm.cli.sync_cmd import sync
 from swarm.plan.parser import load_plan
 from swarm.plan.versioning import list_versions
@@ -99,10 +100,58 @@ Read/Write; a reviewer needs Read/Grep only.
 - Separate producers from reviewers. Never have the same agent write and review code.
 
 MCP TOOLS:
-- forge_list, forge_get, forge_create, forge_clone, forge_suggest, forge_remove
-- plan_create, plan_validate, plan_load, plan_list, plan_get_ready_steps, plan_get_step
+
+DISCOVER & SELECT AGENTS:
+- swarm_discover(query) — lightweight catalog: name+description+tags+usage stats. \
+Use this first.
+- forge_suggest_ranked(query) — semantic ranking with LLM re-ranking prompt
+- forge_get(id_or_name) — full agent details when you need the complete definition
+
+CREATE & MANAGE AGENTS:
+- forge_create — include description, tags, and notes for discoverability
+- forge_clone — clone with overrides; clone preserves notes (lessons learned)
+- forge_export_subagent — export to .claude/agents/ for native Claude Code integration
+- forge_import_subagents — import from .claude/agents/ into Swarm registry
+- forge_annotate_from_run — update agents with performance data after a run
+
+BUILD PLANS:
+- plan_template_list — check available templates before building from scratch
+- plan_template_instantiate — instantiate a template with variables
+- plan_create — build custom plans; use output_artifact, required_inputs, \
+on_failure, spawn_mode, condition
+- plan_validate — validate structure
+- plan_validate_policies — check tool policy compliance against registry
+- plan_amend — splice new steps into an existing plan mid-run
+- plan_patch_step — update a single step without changing DAG structure
+
+EXECUTE & MONITOR:
+- plan_execute_step — resolve agent + interpolate variables -> invocation payload
+- plan_get_ready_steps — DAG-ready steps with condition and artifact gating
+- artifact_declare, artifact_list, artifact_get — track and query step outputs
+- plan_retrospective — analyze completed runs for insights
+
+REGISTRY (low-level):
 - registry_list, registry_inspect, registry_search, registry_remove
-- artifact_declare
+
+WORKFLOW BEST PRACTICES:
+- Use swarm_discover first (cheap, no prompts) before forge_list (expensive)
+- Use forge_suggest_ranked for better agent matching
+- Always set description when creating agents (one sentence)
+- Add tags for discoverability
+- When building plans:
+  * Set output_artifact on steps that produce files
+  * Set required_inputs when steps consume upstream outputs
+  * Choose on_failure strategy per step (stop/skip/retry)
+  * Mark parallelizable steps with spawn_mode: "background"
+  * Use condition for conditional branches \
+(artifact_exists:, step_completed:, step_failed:)
+  * Add critic_agent for steps that need quality review
+  * Use fan_out/join step types for explicit parallel-then-collect patterns
+  * Set required_tools for tool policy validation
+- Check plan_template_list before building plans from scratch
+- Use plan_amend to fix plans mid-run instead of starting over
+- After a run completes: call plan_retrospective, then forge_annotate_from_run \
+to close the feedback loop
 """
 
 
@@ -170,5 +219,6 @@ cli.add_command(forge)
 cli.add_command(plan)
 cli.add_command(registry)
 cli.add_command(run)
+cli.add_command(status)
 cli.add_command(sync)
 cli.add_command(mcp_config)
