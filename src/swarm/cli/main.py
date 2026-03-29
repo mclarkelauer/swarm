@@ -138,11 +138,11 @@ BASE AGENT CATALOG:
 
 Swarm ships with 66 base agents across three domains:
 - Technical (e.g., code-reviewer, security-auditor, architect, test-writer, \
-debugger, data-engineer)
-- General (e.g., researcher, analyst, summarizer, strategic-planner, \
-technical-writer, critic)
-- Business (e.g., product-manager, project-planner, risk-analyst, \
-stakeholder-communicator, product-launch-planner)
+debugger, data-modeler, devops-engineer, prompt-engineer)
+- General (e.g., code-researcher, online-researcher, decision-analyst, \
+strategic-planner, creative-writer, negotiation-strategist, coach)
+- Business (e.g., product-manager, business-plan-writer, sales-strategist, \
+marketing-strategist, bookkeeper, hr-manager, legal-advisor)
 
 Base agents are intentionally broad. They are designed to be SPECIALIZED, \
 not used as-is. Think of them as the foundation, not the finish line.
@@ -195,12 +195,13 @@ and risk assessment
     Narrowed: Output follows a launch plan template, not a generic project plan
 
 Example 3 — Domain + project specialization:
-  Base:        "data-engineer" — designs pipelines, schemas, and ETL flows
-  Specialized: "billing-pipeline-engineer"
-    Added: Stripe webhook schema knowledge
-    Added: Idempotency requirements for payment events
+  Base:        "data-modeler" — designs data schemas, entity relationships, \
+normalization, serialization
+  Specialized: "billing-schema-designer"
+    Added: Stripe webhook schema knowledge and payment event types
+    Added: Idempotency requirements for financial data
     Added: Project-specific warehouse schema (internal context)
-    Narrowed: Only designs billing-related ingestion paths
+    Narrowed: Only designs billing-related data models and migrations
 
 SPECIALIZATION HOOKS:
 Base agent system prompts contain `[DOMAIN-SPECIFIC: ...]` markers that \

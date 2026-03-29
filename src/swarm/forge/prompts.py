@@ -106,8 +106,8 @@ def build_forge_prompt(
     sections: list[str] = []
 
     # Separate builtin base agents from user-created agents.
-    base_agents = [a for a in existing_agents if a.source == "builtin"]
-    user_agents = [a for a in existing_agents if a.source != "builtin"]
+    base_agents = [a for a in existing_agents if a.source == "catalog"]
+    user_agents = [a for a in existing_agents if a.source != "catalog"]
 
     # Surface the best base agent first if caller identified one.
     if best_base_agent is not None:
