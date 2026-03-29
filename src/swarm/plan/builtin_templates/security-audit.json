@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "goal": "Security audit: {description}",
+  "variables": {"description": "", "project_dir": "."},
+  "steps": [
+    {"id": "scan", "type": "task", "agent_type": "security-scanner", "prompt": "Scan {project_dir} for security vulnerabilities related to: {description}", "output_artifact": "scan-results.md"},
+    {"id": "analyze", "type": "task", "agent_type": "security-analyst", "prompt": "Analyze scan results and assess severity of findings.", "depends_on": ["scan"], "required_inputs": ["scan-results.md"], "output_artifact": "analysis.md"},
+    {"id": "report", "type": "task", "agent_type": "technical-writer", "prompt": "Write a security audit report with findings and remediation recommendations.", "depends_on": ["analyze"], "required_inputs": ["analysis.md"], "output_artifact": "security-report.md"},
+    {"id": "review", "type": "task", "agent_type": "security-reviewer", "prompt": "Review the security report for completeness and accuracy.", "depends_on": ["report"], "required_inputs": ["security-report.md"]},
+    {"id": "approve", "type": "checkpoint", "prompt": "Approve security audit", "depends_on": ["review"], "checkpoint_config": {"message": "Review security-report.md. Approve to complete audit."}}
+  ]
+}

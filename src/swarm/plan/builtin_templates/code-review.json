@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "goal": "Code review for {description}",
+  "variables": {"description": "", "project_dir": "."},
+  "steps": [
+    {"id": "analyze", "type": "task", "agent_type": "code-analyzer", "prompt": "Analyze the codebase at {project_dir} for: {description}. Identify key areas to review.", "output_artifact": "analysis.md"},
+    {"id": "review", "type": "task", "agent_type": "code-reviewer", "prompt": "Review the code based on the analysis. Focus on: {description}", "depends_on": ["analyze"], "required_inputs": ["analysis.md"], "output_artifact": "review.md"},
+    {"id": "summarize", "type": "task", "agent_type": "technical-writer", "prompt": "Summarize the review findings into an actionable report.", "depends_on": ["review"], "required_inputs": ["review.md"], "output_artifact": "summary.md"},
+    {"id": "approve", "type": "checkpoint", "prompt": "Review the summary and approve.", "depends_on": ["summarize"], "checkpoint_config": {"message": "Review the code review summary at summary.md. Approve to complete."}}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "goal": "Build feature: {description}",
+  "variables": {"description": "", "project_dir": "."},
+  "steps": [
+    {"id": "design", "type": "task", "agent_type": "architect", "prompt": "Design the implementation plan for: {description} in {project_dir}", "output_artifact": "design.md"},
+    {"id": "approve-design", "type": "checkpoint", "prompt": "Review design", "depends_on": ["design"], "checkpoint_config": {"message": "Review design.md before implementation."}},
+    {"id": "implement", "type": "task", "agent_type": "backend-developer", "prompt": "Implement the feature per design.md: {description}", "depends_on": ["approve-design"], "required_inputs": ["design.md"], "output_artifact": "implementation-complete"},
+    {"id": "test", "type": "task", "agent_type": "test-automator", "prompt": "Write tests for the implementation of: {description}", "depends_on": ["implement"], "output_artifact": "tests-complete"},
+    {"id": "review", "type": "task", "agent_type": "code-reviewer", "prompt": "Review the implementation and tests for: {description}", "depends_on": ["test"]},
+    {"id": "approve-final", "type": "checkpoint", "prompt": "Final review", "depends_on": ["review"], "checkpoint_config": {"message": "Review complete implementation. Approve to finish."}}
+  ]
+}
