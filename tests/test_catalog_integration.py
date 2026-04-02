@@ -471,10 +471,10 @@ class TestFullTemplateResolution:
             if step.get("agent_type")
         ]
 
-    def test_six_builtin_templates_exist(self) -> None:
+    def test_twelve_builtin_templates_exist(self) -> None:
         templates = list(BUILTIN_TEMPLATES_DIR.glob("*.json"))
-        assert len(templates) == 6, (
-            f"Expected 6 builtin templates, found {len(templates)}: "
+        assert len(templates) == 12, (
+            f"Expected 12 builtin templates, found {len(templates)}: "
             + ", ".join(t.name for t in templates)
         )
 
@@ -552,7 +552,7 @@ class TestFullTemplateResolution:
             )
 
     def test_all_templates_all_agent_types_present(self, seeded_registry: RegistryAPI) -> None:
-        """Parametric sweep: every agent_type across all 6 templates is in the registry."""
+        """Parametric sweep: every agent_type across all 12 templates is in the registry."""
         catalog_names = {a.name for a in seeded_registry.list_agents() if a.source == "catalog"}
         missing: list[str] = []
 
