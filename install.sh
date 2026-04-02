@@ -228,18 +228,28 @@ CONF
         echo -e "${RED}${BOLD}Installation completed with warnings.${RESET}"
     fi
 
+    # Step 5: Install skill
+    echo
+    info "Installing /swarm skill to Claude Code..."
+    local skill_dir="${HOME}/.claude/skills/swarm"
+    mkdir -p "$skill_dir"
+    cp "${SCRIPT_DIR}/skills/swarm/SKILL.md" "$skill_dir/"
+    ok "/swarm skill installed"
+
     echo
     echo "Commands available:"
     echo "  swarm                    Launch orchestrator session"
     echo "  swarm forge              Launch forge session (agent design)"
     echo "  swarm --help             Show all commands"
     echo "  swarm mcp-config         Print MCP config for Claude Code"
+    echo "  /swarm                   In any Claude session, get Swarm guidance"
     echo
     echo "Data directory: ${DATA_DIR}"
     echo
     echo "Next steps:"
     echo "  1. Run: swarm"
     echo "  2. Describe your goal — the orchestrator will design agents and a plan"
+    echo "  3. Or use /swarm in any Claude session for guidance"
     echo
 }
 

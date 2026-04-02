@@ -9,10 +9,12 @@ Instead of building its own UI, Swarm uses Claude Code as the orchestrator. You 
 ```bash
 # Install
 git clone <repo-url> && cd swarm
-./install.sh
+./install.sh                     # Installs swarm CLI + /swarm skill
 
 # Launch the orchestrator — Claude with Swarm tools attached
 swarm
+
+# Or use /swarm skill in any Claude Code session for guidance
 ```
 
 That's it. You're in a Claude Code session with 45 MCP tools for agent management, plan building, execution, memory, and messaging. Describe your goal and the orchestrator will:
@@ -36,6 +38,20 @@ swarm status                     # show run progress from run_log.json
 swarm status --diagnose          # failure analysis with suggested fixes
 swarm mcp-config                 # print MCP config for manual setup
 ```
+
+### /swarm Skill
+
+The `/swarm` skill is available in any Claude Code session (not just swarm sessions) to provide guidance on multi-agent orchestration:
+
+```
+/swarm                           # Load Swarm orchestration guide
+```
+
+The skill provides:
+- 6 core workflow patterns (discover, create, build plans, execute, memory/messaging, feedback)
+- Advanced features (loops, decisions, critics, fan-out/join) with code examples
+- Best practices and troubleshooting
+- Full 45-tool reference guide
 
 ### Prerequisites
 

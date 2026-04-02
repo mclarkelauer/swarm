@@ -1,7 +1,7 @@
 ---
 name: swarm
-description: Multi-agent orchestration with Swarm MCP tools - agent forge, registry, plan execution, memory, and messaging
-trigger: Use when the user asks to orchestrate multiple agents, create specialized agents, build execution plans, or coordinate agent workflows
+description: "Multi-agent orchestration with Swarm MCP tools - agent forge, registry, plan execution, memory, and messaging"
+user-invocable: true
 ---
 
 # Swarm - Multi-Agent Orchestration
