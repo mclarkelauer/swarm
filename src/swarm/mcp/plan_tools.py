@@ -14,9 +14,10 @@ from swarm.plan.dag import detect_cycles, get_ready_steps
 from swarm.plan.discovery import find_plans_dir
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.parser import load_plan, save_plan, validate_plan, validate_tool_policies
-from swarm.plan.run_log import load_run_log
+from swarm.plan.run_log import load_run_log, write_run_log
 from swarm.plan.templates import instantiate_template, list_templates
 from swarm.plan.versioning import list_versions
+from swarm.plan.visualization import render_ascii, render_mermaid
 
 
 def _resolve_plans_dir(plans_dir: str) -> Path:
@@ -439,6 +440,7 @@ def plan_amend(plan_path: str, insert_after: str, new_steps_json: str) -> str:
         goal=plan.goal,
         steps=new_step_list,
         variables=plan.variables,
+        max_replans=plan.max_replans,
     )
 
     # 9. Validate
@@ -514,6 +516,7 @@ def plan_patch_step(plan_path: str, step_id: str, overrides_json: str) -> str:
         goal=plan.goal,
         steps=new_steps,
         variables=plan.variables,
+        max_replans=plan.max_replans,
     )
 
     # 6. Validate
@@ -744,3 +747,125 @@ def plan_retrospective(run_log_path: str, plan_path: str = "") -> str:
         "unused_artifacts": unused_artifacts,
         "suggestions": suggestions,
     })
+
+
+@mcp.tool()
+def plan_visualize(
+    plan_json: str,
+    completed_json: str = "[]",
+    format: str = "mermaid",
+    step_outcomes_json: str = "{}",
+) -> str:
+    """Visualize a plan's DAG as a Mermaid flowchart or ASCII wave table.
+
+    Args:
+        plan_json: Full plan JSON string with version, goal, steps.
+        completed_json: JSON array of completed step ID strings.
+        format: Output format — ``"mermaid"`` for a Mermaid flowchart diagram,
+            or ``"ascii"`` for a simple ASCII table grouped by execution wave.
+        step_outcomes_json: JSON object mapping step IDs to outcome strings
+            (e.g. ``{"step-1": "failed"}``).  Used for status color-coding.
+
+    Returns:
+        JSON ``{"format": "...", "diagram": "..."}``.
+        Returns ``{"error": "..."}`` for invalid input.
+    """
+    try:
+        data = json.loads(plan_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"error": f"Invalid plan_json: {exc}"})
+
+    plan = Plan.from_dict(data)
+
+    try:
+        completed: set[str] = set(json.loads(completed_json))
+    except json.JSONDecodeError as exc:
+        return json.dumps({"error": f"Invalid completed_json: {exc}"})
+
+    try:
+        outcomes: dict[str, str] = json.loads(step_outcomes_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"error": f"Invalid step_outcomes_json: {exc}"})
+
+    fmt = format.lower()
+    if fmt == "mermaid":
+        diagram = render_mermaid(plan, completed=completed, step_outcomes=outcomes)
+    elif fmt == "ascii":
+        diagram = render_ascii(plan, completed=completed, step_outcomes=outcomes)
+    else:
+        return json.dumps({"error": f"Unknown format '{format}'; use 'mermaid' or 'ascii'"})
+
+    return json.dumps({"format": fmt, "diagram": diagram})
+
+
+@mcp.tool()
+def plan_replan(
+    run_log_path: str,
+    insert_after: str,
+    new_steps_json: str,
+) -> str:
+    """Insert remediation steps into the active plan during execution.
+
+    A convenience wrapper around ``plan_amend`` that:
+    1. Loads the run log to find the active plan path.
+    2. Checks the replan safety limit (``max_replans``).
+    3. Increments the replan counter in the run log.
+    4. Delegates to ``plan_amend`` for the actual insertion.
+
+    Args:
+        run_log_path: Path to the active run log JSON file.
+        insert_after: ID of the step after which to insert new steps.
+        new_steps_json: JSON array of step objects to insert.
+
+    Returns:
+        JSON ``{path, version, errors, inserted_steps, replan_count}``
+        -- same as ``plan_amend`` plus the updated replan count.
+        Returns ``{"error": "..."}`` if the replan limit is exceeded
+        or the run log cannot be loaded.
+    """
+    # 1. Load run log
+    try:
+        log = load_run_log(Path(run_log_path))
+    except FileNotFoundError:
+        return json.dumps({"error": f"Run log not found: {run_log_path}"})
+
+    # 2. Load plan to check max_replans
+    plan_path = log.plan_path
+    if not plan_path:
+        return json.dumps({"error": "Run log has no plan_path"})
+
+    try:
+        plan = load_plan(Path(plan_path))
+    except FileNotFoundError:
+        return json.dumps({"error": f"Plan not found: {plan_path}"})
+
+    # 3. Check safety limit
+    if log.replan_count >= plan.max_replans:
+        return json.dumps({
+            "error": (
+                f"Replan limit reached ({log.replan_count}/{plan.max_replans}). "
+                f"Increase max_replans on the plan to allow more."
+            ),
+        })
+
+    # 4. Delegate to plan_amend
+    result_json = plan_amend(
+        plan_path=plan_path,
+        insert_after=insert_after,
+        new_steps_json=new_steps_json,
+    )
+    result = json.loads(result_json)
+
+    if result.get("errors"):
+        return result_json  # pass through validation errors
+
+    # 5. Increment replan counter and update run log
+    log.replan_count += 1
+    # Update plan_path to point to the new version
+    if result.get("path"):
+        log.plan_path = result["path"]
+        log.plan_version = result["version"]
+    write_run_log(log, Path(run_log_path))
+
+    result["replan_count"] = log.replan_count
+    return json.dumps(result)

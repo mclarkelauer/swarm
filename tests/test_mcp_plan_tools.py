@@ -18,8 +18,10 @@ from swarm.mcp.plan_tools import (
     plan_get_step,
     plan_list,
     plan_load,
+    plan_replan,
     plan_validate,
 )
+from swarm.plan.run_log import RunLog, write_run_log
 from swarm.registry.models import AgentDefinition
 
 
@@ -371,3 +373,128 @@ class TestPlanExecuteStep:
         )
         assert "blue-green" in result["prompt"]
         assert "{strategy}" not in result["prompt"]
+
+
+# ---------------------------------------------------------------------------
+# plan_replan tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlanReplan:
+    def _setup_plan_and_log(self, tmp_path: Path, max_replans: int = 5) -> tuple[Path, Path]:
+        """Create a plan and run log, returning (plan_path, log_path)."""
+        plan_data = {
+            "version": 1,
+            "goal": "test replan",
+            "steps": [
+                {"id": "s1", "type": "task", "prompt": "first", "agent_type": "worker"},
+                {"id": "s2", "type": "task", "prompt": "second", "agent_type": "worker",
+                 "depends_on": ["s1"]},
+            ],
+        }
+        if max_replans != 5:
+            plan_data["max_replans"] = max_replans
+        plan_path = tmp_path / "plan_v1.json"
+        plan_path.write_text(json.dumps(plan_data), encoding="utf-8")
+
+        log = RunLog(
+            plan_path=str(plan_path),
+            plan_version=1,
+            started_at="2026-01-01T00:00:00+00:00",
+            status="running",
+        )
+        log_path = tmp_path / "run_log.json"
+        write_run_log(log, log_path)
+        return plan_path, log_path
+
+    def test_successful_replan(self, tmp_path: Path) -> None:
+        plan_path, log_path = self._setup_plan_and_log(tmp_path)
+
+        new_steps = json.dumps([
+            {"id": "fix", "type": "task", "prompt": "fix things", "agent_type": "fixer"},
+        ])
+
+        result = json.loads(plan_replan(str(log_path), "s1", new_steps))
+
+        assert "error" not in result
+        assert result["replan_count"] == 1
+        assert "fix" in result["inserted_steps"]
+        assert result["version"] == 2
+        assert Path(result["path"]).exists()
+
+    def test_replan_increments_counter(self, tmp_path: Path) -> None:
+        plan_path, log_path = self._setup_plan_and_log(tmp_path)
+
+        new_steps = json.dumps([
+            {"id": "fix1", "type": "task", "prompt": "fix1", "agent_type": "fixer"},
+        ])
+        result1 = json.loads(plan_replan(str(log_path), "s1", new_steps))
+        assert result1["replan_count"] == 1
+
+        # Second replan uses the updated plan path
+        new_steps2 = json.dumps([
+            {"id": "fix2", "type": "task", "prompt": "fix2", "agent_type": "fixer"},
+        ])
+        result2 = json.loads(plan_replan(str(log_path), "fix1", new_steps2))
+        assert result2["replan_count"] == 2
+
+    def test_replan_limit_exceeded(self, tmp_path: Path) -> None:
+        plan_path, log_path = self._setup_plan_and_log(tmp_path, max_replans=1)
+
+        # First replan succeeds
+        new_steps = json.dumps([
+            {"id": "fix1", "type": "task", "prompt": "fix", "agent_type": "fixer"},
+        ])
+        result1 = json.loads(plan_replan(str(log_path), "s1", new_steps))
+        assert result1["replan_count"] == 1
+
+        # Second replan exceeds limit
+        new_steps2 = json.dumps([
+            {"id": "fix2", "type": "task", "prompt": "fix2", "agent_type": "fixer"},
+        ])
+        result2 = json.loads(plan_replan(str(log_path), "fix1", new_steps2))
+        assert "error" in result2
+        assert "Replan limit" in result2["error"]
+
+    def test_replan_run_log_not_found(self, tmp_path: Path) -> None:
+        result = json.loads(plan_replan(str(tmp_path / "missing.json"), "s1", "[]"))
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+    def test_replan_no_plan_path_in_log(self, tmp_path: Path) -> None:
+        log = RunLog(plan_path="", plan_version=1, started_at="t0", status="running")
+        log_path = tmp_path / "run_log.json"
+        write_run_log(log, log_path)
+
+        result = json.loads(plan_replan(str(log_path), "s1", "[]"))
+        assert "error" in result
+        assert "plan_path" in result["error"].lower()
+
+    def test_replan_plan_file_not_found(self, tmp_path: Path) -> None:
+        log = RunLog(
+            plan_path=str(tmp_path / "missing_plan.json"),
+            plan_version=1,
+            started_at="t0",
+        )
+        log_path = tmp_path / "run_log.json"
+        write_run_log(log, log_path)
+
+        result = json.loads(plan_replan(str(log_path), "s1", "[]"))
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+    def test_replan_updates_log_plan_path(self, tmp_path: Path) -> None:
+        """After a replan, the run log's plan_path should point to the new version."""
+        plan_path, log_path = self._setup_plan_and_log(tmp_path)
+
+        new_steps = json.dumps([
+            {"id": "fix", "type": "task", "prompt": "fix", "agent_type": "fixer"},
+        ])
+        result = json.loads(plan_replan(str(log_path), "s1", new_steps))
+
+        # Reload run log and check plan_path was updated
+        from swarm.plan.run_log import load_run_log as _load
+        updated_log = _load(log_path)
+        assert updated_log.plan_path == result["path"]
+        assert updated_log.plan_version == result["version"]
+        assert updated_log.replan_count == 1
