@@ -28,6 +28,8 @@ class SwarmConfig:
 
     base_dir: Path = field(default_factory=lambda: Path.home() / ".swarm")
     forge_timeout: int = 600
+    agent_timeout: int = 300
+    max_concurrent_background: int = 4
 
 
 def _config_path(path: Path | None) -> Path:
@@ -99,6 +101,8 @@ def save_config(config: SwarmConfig, path: Path | None = None) -> None:
     data: dict[str, Any] = {
         "base_dir": str(config.base_dir),
         "forge_timeout": config.forge_timeout,
+        "agent_timeout": config.agent_timeout,
+        "max_concurrent_background": config.max_concurrent_background,
     }
 
     config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")

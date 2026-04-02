@@ -19,3 +19,15 @@ class ForgeError(SwarmError):
 
 class PlanError(SwarmError):
     """Raised when a plan operation fails."""
+
+
+class ExecutionError(SwarmError):
+    """Raised when a plan execution operation fails."""
+
+
+class SwarmMemoryError(SwarmError):
+    """Raised when an agent memory operation fails."""
+
+
+class MessagingError(SwarmError):
+    """Raised when an inter-agent messaging operation fails."""
