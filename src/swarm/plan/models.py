@@ -48,7 +48,7 @@ class LoopConfig:
     """Configuration for a loop step."""
 
     condition: str = ""
-    max_iterations: int = 100_000
+    max_iterations: int = 10
 
     def to_dict(self) -> dict[str, Any]:
         return {"condition": self.condition, "max_iterations": self.max_iterations}
@@ -57,7 +57,7 @@ class LoopConfig:
     def from_dict(cls, d: dict[str, Any]) -> LoopConfig:
         return cls(
             condition=d.get("condition", ""),
-            max_iterations=d.get("max_iterations", 100_000),
+            max_iterations=d.get("max_iterations", 10),
         )
 
 
@@ -73,6 +73,85 @@ class CheckpointConfig:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> CheckpointConfig:
         return cls(message=d.get("message", ""))
+
+
+@dataclass(frozen=True)
+class RetryConfig:
+    """Retry policy for a step with on_failure='retry'."""
+
+    max_retries: int = 3
+    backoff_seconds: float = 2.0
+    backoff_multiplier: float = 2.0
+    max_backoff_seconds: float = 60.0
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {}
+        if self.max_retries != 3:
+            d["max_retries"] = self.max_retries
+        if self.backoff_seconds != 2.0:
+            d["backoff_seconds"] = self.backoff_seconds
+        if self.backoff_multiplier != 2.0:
+            d["backoff_multiplier"] = self.backoff_multiplier
+        if self.max_backoff_seconds != 60.0:
+            d["max_backoff_seconds"] = self.max_backoff_seconds
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> RetryConfig:
+        return cls(
+            max_retries=d.get("max_retries", 3),
+            backoff_seconds=d.get("backoff_seconds", 2.0),
+            backoff_multiplier=d.get("backoff_multiplier", 2.0),
+            max_backoff_seconds=d.get("max_backoff_seconds", 60.0),
+        )
+
+    def delay_for_attempt(self, attempt: int) -> float:
+        """Return the delay in seconds before the given retry attempt (0-indexed)."""
+        delay = self.backoff_seconds * (self.backoff_multiplier ** attempt)
+        return min(delay, self.max_backoff_seconds)
+
+
+@dataclass(frozen=True)
+class ConditionalAction:
+    """A single branch in a decision step."""
+
+    condition: str
+    activate_steps: tuple[str, ...] = ()
+    skip_steps: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"condition": self.condition}
+        if self.activate_steps:
+            d["activate_steps"] = list(self.activate_steps)
+        if self.skip_steps:
+            d["skip_steps"] = list(self.skip_steps)
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ConditionalAction:
+        return cls(
+            condition=d.get("condition", ""),
+            activate_steps=tuple(d.get("activate_steps", [])),
+            skip_steps=tuple(d.get("skip_steps", [])),
+        )
+
+
+@dataclass(frozen=True)
+class DecisionConfig:
+    """Configuration for a decision step."""
+
+    actions: tuple[ConditionalAction, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"actions": [a.to_dict() for a in self.actions]}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> DecisionConfig:
+        return cls(
+            actions=tuple(
+                ConditionalAction.from_dict(a) for a in d.get("actions", [])
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -95,6 +174,9 @@ class PlanStep:
     required_tools: tuple[str, ...] = ()
     critic_agent: str = ""
     max_critic_iterations: int = 3
+    retry_config: RetryConfig | None = None
+    decision_config: DecisionConfig | None = None
+    message_to: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -128,6 +210,14 @@ class PlanStep:
             d["critic_agent"] = self.critic_agent
         if self.max_critic_iterations != 3:
             d["max_critic_iterations"] = self.max_critic_iterations
+        if self.retry_config is not None:
+            rc = self.retry_config.to_dict()
+            if rc:  # sparse: only emit when non-default values exist
+                d["retry_config"] = rc
+        if self.decision_config is not None:
+            d["decision_config"] = self.decision_config.to_dict()
+        if self.message_to:
+            d["message_to"] = self.message_to
         return d
 
     @classmethod
@@ -141,6 +231,14 @@ class PlanStep:
         fan_out_config = None
         if "fan_out_config" in d:
             fan_out_config = FanOutConfig.from_dict(d["fan_out_config"])
+        retry_config = None
+        if "retry_config" in d:
+            retry_config = RetryConfig.from_dict(d["retry_config"])
+        elif d.get("on_failure") == "retry":
+            retry_config = RetryConfig()  # defaults
+        decision_config = None
+        if "decision_config" in d:
+            decision_config = DecisionConfig.from_dict(d["decision_config"])
         return cls(
             id=d["id"],
             type=d["type"],
@@ -158,6 +256,9 @@ class PlanStep:
             required_tools=tuple(d.get("required_tools", [])),
             critic_agent=d.get("critic_agent", ""),
             max_critic_iterations=d.get("max_critic_iterations", 3),
+            retry_config=retry_config,
+            decision_config=decision_config,
+            message_to=d.get("message_to", ""),
         )
 
 
@@ -169,14 +270,18 @@ class Plan:
     goal: str
     steps: list[PlanStep]
     variables: dict[str, str] = field(default_factory=dict)
+    max_replans: int = 5
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d: dict[str, Any] = {
             "version": self.version,
             "goal": self.goal,
             "steps": [s.to_dict() for s in self.steps],
             "variables": self.variables,
         }
+        if self.max_replans != 5:
+            d["max_replans"] = self.max_replans
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Plan:
@@ -185,4 +290,5 @@ class Plan:
             goal=d["goal"],
             steps=[PlanStep.from_dict(s) for s in d.get("steps", [])],
             variables=d.get("variables", {}),
+            max_replans=d.get("max_replans", 5),
         )

@@ -160,6 +160,102 @@ class TestEvaluateConditionStepFailed:
         assert evaluate_condition("step_failed:s1", {"s1"}) is False
 
 
+class TestValidateConditionOutputContains:
+    def test_valid_output_contains(self) -> None:
+        assert validate_condition("output_contains:build:ERROR.*dependency") is None
+
+    def test_valid_output_contains_simple_pattern(self) -> None:
+        assert validate_condition("output_contains:step1:success") is None
+
+    def test_missing_step_id_is_error(self) -> None:
+        error = validate_condition("output_contains:")
+        assert error is not None
+        assert "empty" in error.lower()
+
+    def test_missing_pattern_is_error(self) -> None:
+        error = validate_condition("output_contains:step1:")
+        assert error is not None
+        assert "output_contains" in error
+
+    def test_no_colon_separator_is_error(self) -> None:
+        error = validate_condition("output_contains:step1_only")
+        assert error is not None
+        assert "output_contains" in error
+
+    def test_invalid_regex_is_error(self) -> None:
+        error = validate_condition("output_contains:step1:[invalid")
+        assert error is not None
+        assert "invalid regex" in error.lower() or "regex" in error.lower()
+
+    def test_valid_complex_regex(self) -> None:
+        assert validate_condition(r"output_contains:build:ERROR\s+\d{3}") is None
+
+
+class TestEvaluateConditionOutputContains:
+    def test_pattern_found_returns_true(self, tmp_path: Path) -> None:
+        (tmp_path / "build.stdout.log").write_text(
+            "Compiling...\nERROR: dependency not found\nDone.", encoding="utf-8"
+        )
+        assert (
+            evaluate_condition(
+                "output_contains:build:ERROR.*dependency",
+                set(),
+                artifacts_dir=tmp_path,
+            )
+            is True
+        )
+
+    def test_pattern_not_found_returns_false(self, tmp_path: Path) -> None:
+        (tmp_path / "build.stdout.log").write_text(
+            "Compiling...\nSuccess.\nDone.", encoding="utf-8"
+        )
+        assert (
+            evaluate_condition(
+                "output_contains:build:ERROR.*dependency",
+                set(),
+                artifacts_dir=tmp_path,
+            )
+            is False
+        )
+
+    def test_missing_log_file_returns_false(self, tmp_path: Path) -> None:
+        assert (
+            evaluate_condition(
+                "output_contains:build:ERROR",
+                set(),
+                artifacts_dir=tmp_path,
+            )
+            is False
+        )
+
+    def test_artifacts_dir_none_returns_true_permissive(self) -> None:
+        assert (
+            evaluate_condition(
+                "output_contains:build:ERROR",
+                set(),
+                artifacts_dir=None,
+            )
+            is True
+        )
+
+    def test_multiline_pattern_match(self, tmp_path: Path) -> None:
+        (tmp_path / "test.stdout.log").write_text(
+            "line1\nWARNING: deprecated API\nline3", encoding="utf-8"
+        )
+        assert (
+            evaluate_condition(
+                "output_contains:test:WARNING.*deprecated",
+                set(),
+                artifacts_dir=tmp_path,
+            )
+            is True
+        )
+
+    def test_malformed_condition_returns_false(self) -> None:
+        # Missing pattern part
+        assert evaluate_condition("output_contains:steponly", set()) is False
+
+
 class TestEvaluateConditionUnknownFormat:
     def test_unknown_format_returns_true_permissive(self) -> None:
         # Unknown conditions evaluate permissively to True

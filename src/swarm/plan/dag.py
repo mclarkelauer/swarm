@@ -62,6 +62,7 @@ def get_ready_steps(
     completed: set[str],
     artifacts_dir: Path | None = None,
     step_outcomes: dict[str, str] | None = None,
+    decision_overrides: dict[str, str] | None = None,
 ) -> list[PlanStep]:
     """Return steps whose dependencies are all in the completed set.
 
@@ -77,8 +78,14 @@ def get_ready_steps(
         step_outcomes: Optional mapping of step ID to outcome string (e.g.
             ``"failed"``).  Passed through to ``evaluate_condition`` for
             ``step_failed:`` expressions.
+        decision_overrides: Optional mapping of step ID to overridden
+            condition value.  When a step's ID appears in this mapping,
+            the override value is used instead of the step's own
+            ``condition`` field.  Used by decision steps to activate
+            steps that have ``condition: "never"``.
     """
     ready: list[PlanStep] = []
+    overrides = decision_overrides or {}
     for s in plan.steps:
         if s.id in completed:
             continue
@@ -90,8 +97,9 @@ def get_ready_steps(
             and not all((artifacts_dir / inp).exists() for inp in s.required_inputs)
         ):
             continue
+        effective_condition = overrides.get(s.id, s.condition)
         if not evaluate_condition(
-            s.condition,
+            effective_condition,
             completed,
             step_outcomes=step_outcomes,
             artifacts_dir=artifacts_dir,

@@ -282,3 +282,41 @@ class TestGetReadyStepsWithArtifactsDir:
         )
         ready = get_ready_steps(plan, set(), artifacts_dir=tmp_path)
         assert [s.id for s in ready] == ["a"]
+
+
+class TestGetReadyStepsWithDecisionOverrides:
+    def test_decision_override_activates_never_step(self) -> None:
+        """A step with condition='never' becomes ready when overridden by a decision."""
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+        )
+        # Without override, not ready
+        assert get_ready_steps(plan, set()) == []
+        # With override, ready
+        ready = get_ready_steps(plan, set(), decision_overrides={"a": ""})
+        assert [s.id for s in ready] == ["a"]
+
+    def test_decision_override_does_not_affect_unmentioned_steps(self) -> None:
+        """Steps not in overrides still use their own condition."""
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+            PlanStep(id="b", type="task", prompt="p", agent_type="w", condition="never"),
+        )
+        ready = get_ready_steps(plan, set(), decision_overrides={"a": ""})
+        assert [s.id for s in ready] == ["a"]
+
+    def test_decision_override_empty_dict_no_effect(self) -> None:
+        """Empty overrides dict has no effect."""
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+        )
+        ready = get_ready_steps(plan, set(), decision_overrides={})
+        assert ready == []
+
+    def test_decision_override_none_no_effect(self) -> None:
+        """None overrides has no effect (backward compat)."""
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="p", agent_type="w", condition="never"),
+        )
+        ready = get_ready_steps(plan, set(), decision_overrides=None)
+        assert ready == []

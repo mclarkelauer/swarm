@@ -128,11 +128,15 @@ def instantiate_template(name: str, variables: dict[str, str]) -> Plan:
             depends_on=step.depends_on,
             loop_config=step.loop_config,
             checkpoint_config=step.checkpoint_config,
+            fan_out_config=step.fan_out_config,
             output_artifact=step.output_artifact,
             required_inputs=step.required_inputs,
             on_failure=step.on_failure,
             spawn_mode=step.spawn_mode,
             condition=step.condition,
+            required_tools=step.required_tools,
+            critic_agent=step.critic_agent,
+            max_critic_iterations=step.max_critic_iterations,
         )
         new_steps.append(new_step)
 

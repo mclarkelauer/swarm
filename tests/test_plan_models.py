@@ -1,8 +1,15 @@
-"""Tests for swarm.plan.models: Plan, PlanStep, LoopConfig, CheckpointConfig."""
+"""Tests for swarm.plan.models: Plan, PlanStep, LoopConfig, CheckpointConfig, DecisionConfig."""
 
 from __future__ import annotations
 
-from swarm.plan.models import CheckpointConfig, LoopConfig, Plan, PlanStep
+from swarm.plan.models import (
+    CheckpointConfig,
+    ConditionalAction,
+    DecisionConfig,
+    LoopConfig,
+    Plan,
+    PlanStep,
+)
 
 
 class TestPlanStepConstruction:
@@ -42,7 +49,7 @@ class TestLoopConfigDefaults:
     def test_defaults(self) -> None:
         lc = LoopConfig()
         assert lc.condition == ""
-        assert lc.max_iterations == 100_000
+        assert lc.max_iterations == 10
 
 
 class TestCheckpointConfigDefaults:
@@ -215,3 +222,143 @@ class TestJsonRoundTrip:
     def test_checkpoint_config_round_trip(self) -> None:
         cc = CheckpointConfig(message="Review?")
         assert CheckpointConfig.from_dict(cc.to_dict()) == cc
+
+
+# ---------------------------------------------------------------------------
+# ConditionalAction
+# ---------------------------------------------------------------------------
+
+
+class TestConditionalAction:
+    def test_defaults(self) -> None:
+        ca = ConditionalAction(condition="step_completed:s1")
+        assert ca.activate_steps == ()
+        assert ca.skip_steps == ()
+
+    def test_round_trip_full(self) -> None:
+        ca = ConditionalAction(
+            condition="output_contains:build:ERROR",
+            activate_steps=("fix-deps",),
+            skip_steps=("test", "deploy"),
+        )
+        restored = ConditionalAction.from_dict(ca.to_dict())
+        assert restored == ca
+
+    def test_sparse_serialization_empty_tuples(self) -> None:
+        ca = ConditionalAction(condition="always")
+        d = ca.to_dict()
+        assert "activate_steps" not in d
+        assert "skip_steps" not in d
+        assert d["condition"] == "always"
+
+    def test_from_dict_backward_compat(self) -> None:
+        d = {"condition": "step_completed:s1"}
+        ca = ConditionalAction.from_dict(d)
+        assert ca.activate_steps == ()
+        assert ca.skip_steps == ()
+
+
+# ---------------------------------------------------------------------------
+# DecisionConfig
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionConfig:
+    def test_empty_actions(self) -> None:
+        dc = DecisionConfig()
+        assert dc.actions == ()
+
+    def test_round_trip(self) -> None:
+        dc = DecisionConfig(
+            actions=(
+                ConditionalAction(
+                    condition="output_contains:build:ERROR.*dep",
+                    activate_steps=("fix-deps",),
+                    skip_steps=("test",),
+                ),
+                ConditionalAction(
+                    condition="step_completed:build",
+                    activate_steps=("test",),
+                ),
+            ),
+        )
+        restored = DecisionConfig.from_dict(dc.to_dict())
+        assert restored == dc
+        assert len(restored.actions) == 2
+
+    def test_from_dict_missing_actions(self) -> None:
+        dc = DecisionConfig.from_dict({})
+        assert dc.actions == ()
+
+
+# ---------------------------------------------------------------------------
+# PlanStep with decision_config
+# ---------------------------------------------------------------------------
+
+
+class TestPlanStepDecisionConfig:
+    def test_decision_config_default_is_none(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p")
+        assert step.decision_config is None
+
+    def test_decision_config_round_trip(self) -> None:
+        dc = DecisionConfig(
+            actions=(
+                ConditionalAction(
+                    condition="step_completed:build",
+                    activate_steps=("test",),
+                ),
+            ),
+        )
+        step = PlanStep(
+            id="decide",
+            type="decision",
+            prompt="Branch based on build",
+            decision_config=dc,
+        )
+        restored = PlanStep.from_dict(step.to_dict())
+        assert restored.decision_config is not None
+        assert len(restored.decision_config.actions) == 1
+        assert restored.decision_config.actions[0].activate_steps == ("test",)
+
+    def test_decision_config_sparse_serialization(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", agent_type="w")
+        d = step.to_dict()
+        assert "decision_config" not in d
+
+    def test_from_dict_backward_compat_no_decision_config(self) -> None:
+        old_dict = {"id": "s1", "type": "task", "prompt": "p", "agent_type": "w"}
+        step = PlanStep.from_dict(old_dict)
+        assert step.decision_config is None
+
+
+# ---------------------------------------------------------------------------
+# Plan max_replans
+# ---------------------------------------------------------------------------
+
+
+class TestPlanMaxReplans:
+    def test_default_max_replans(self) -> None:
+        plan = Plan(version=1, goal="g", steps=[])
+        assert plan.max_replans == 5
+
+    def test_custom_max_replans(self) -> None:
+        plan = Plan(version=1, goal="g", steps=[], max_replans=10)
+        assert plan.max_replans == 10
+
+    def test_max_replans_round_trip_non_default(self) -> None:
+        plan = Plan(version=1, goal="g", steps=[], max_replans=3)
+        d = plan.to_dict()
+        assert d["max_replans"] == 3
+        restored = Plan.from_dict(d)
+        assert restored.max_replans == 3
+
+    def test_max_replans_sparse_serialization_default_omitted(self) -> None:
+        plan = Plan(version=1, goal="g", steps=[])
+        d = plan.to_dict()
+        assert "max_replans" not in d
+
+    def test_from_dict_backward_compat_missing_defaults_to_five(self) -> None:
+        d = {"version": 1, "goal": "g", "steps": []}
+        plan = Plan.from_dict(d)
+        assert plan.max_replans == 5

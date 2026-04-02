@@ -72,6 +72,39 @@ class TestWriteLoadRunLog:
         assert loaded.plan_version == 1
 
 
+class TestRunLogReplanCount:
+    def test_default_replan_count(self) -> None:
+        log = RunLog(plan_path="p", plan_version=1, started_at="t0")
+        assert log.replan_count == 0
+
+    def test_replan_count_round_trip(self) -> None:
+        log = RunLog(plan_path="p", plan_version=1, started_at="t0", replan_count=3)
+        restored = RunLog.from_dict(log.to_dict())
+        assert restored.replan_count == 3
+
+    def test_replan_count_sparse_serialization_zero_omitted(self) -> None:
+        log = RunLog(plan_path="p", plan_version=1, started_at="t0")
+        d = log.to_dict()
+        assert "replan_count" not in d
+
+    def test_replan_count_sparse_serialization_nonzero_included(self) -> None:
+        log = RunLog(plan_path="p", plan_version=1, started_at="t0", replan_count=2)
+        d = log.to_dict()
+        assert d["replan_count"] == 2
+
+    def test_from_dict_backward_compat_missing_defaults_to_zero(self) -> None:
+        d = {"plan_path": "p", "plan_version": 1, "started_at": "t0"}
+        log = RunLog.from_dict(d)
+        assert log.replan_count == 0
+
+    def test_replan_count_persists_through_write_load(self, tmp_path: Path) -> None:
+        log = RunLog(plan_path="p.json", plan_version=1, started_at="t0", replan_count=5)
+        path = tmp_path / "run_log.json"
+        write_run_log(log, path)
+        loaded = load_run_log(path)
+        assert loaded.replan_count == 5
+
+
 class TestAppendStepOutcome:
     def test_appends_and_persists(self, tmp_path: Path) -> None:
         log = RunLog(plan_path="p.json", plan_version=1, started_at="t0")

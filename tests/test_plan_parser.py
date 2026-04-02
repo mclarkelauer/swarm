@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from swarm.plan.models import Plan, PlanStep
+from swarm.plan.models import ConditionalAction, DecisionConfig, Plan, PlanStep
 from swarm.plan.parser import load_plan, save_plan, validate_plan
 
 
@@ -291,3 +291,147 @@ class TestSavePlan:
         loaded = load_plan(path)
         assert loaded.goal == sample_plan.goal
         assert len(loaded.steps) == len(sample_plan.steps)
+
+
+class TestValidateDecisionStep:
+    def test_valid_decision_step(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(id="build", type="task", prompt="build", agent_type="builder"),
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    depends_on=("build",),
+                    decision_config=DecisionConfig(
+                        actions=(
+                            ConditionalAction(
+                                condition="step_completed:build",
+                                activate_steps=("build",),
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert errors == []
+
+    def test_decision_missing_config(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(id="decide", type="decision", prompt="branch"),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("decision_config" in e for e in errors)
+
+    def test_decision_empty_actions(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    decision_config=DecisionConfig(actions=()),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("at least one action" in e for e in errors)
+
+    def test_decision_invalid_condition_in_action(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    decision_config=DecisionConfig(
+                        actions=(
+                            ConditionalAction(
+                                condition="unknown_format_xyz",
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("action 0" in e for e in errors)
+
+    def test_decision_unknown_activate_step(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    decision_config=DecisionConfig(
+                        actions=(
+                            ConditionalAction(
+                                condition="always",
+                                activate_steps=("nonexistent",),
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("activate_steps" in e and "nonexistent" in e for e in errors)
+
+    def test_decision_unknown_skip_step(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    decision_config=DecisionConfig(
+                        actions=(
+                            ConditionalAction(
+                                condition="always",
+                                skip_steps=("missing",),
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        assert any("skip_steps" in e and "missing" in e for e in errors)
+
+    def test_decision_step_does_not_require_agent_type(self) -> None:
+        plan = Plan(
+            version=1,
+            goal="test",
+            steps=[
+                PlanStep(
+                    id="decide",
+                    type="decision",
+                    prompt="branch",
+                    decision_config=DecisionConfig(
+                        actions=(
+                            ConditionalAction(condition="always"),
+                        ),
+                    ),
+                ),
+            ],
+        )
+        errors = validate_plan(plan)
+        # No agent_type errors for decision steps
+        agent_errors = [e for e in errors if "agent_type" in e]
+        assert agent_errors == []

@@ -13,7 +13,7 @@ from swarm.plan.versioning import next_version
 if TYPE_CHECKING:
     from swarm.registry.api import RegistryAPI
 
-_VALID_STEP_TYPES = {"task", "checkpoint", "loop", "fan_out", "join"}
+_VALID_STEP_TYPES = {"task", "checkpoint", "loop", "fan_out", "join", "decision"}
 _VALID_ON_FAILURE = {"stop", "skip", "retry"}
 _VALID_SPAWN_MODES = {"foreground", "background"}
 
@@ -74,6 +74,33 @@ def validate_plan(plan: Plan) -> list[str]:
                             f"Fan-out step '{step.id}' branch {i} is missing prompt"
                         )
 
+        if step.type == "decision":
+            if step.decision_config is None:
+                errors.append(f"Decision step '{step.id}' must have decision_config")
+            else:
+                if not step.decision_config.actions:
+                    errors.append(
+                        f"Decision step '{step.id}' must have at least one action"
+                    )
+                for i, action in enumerate(step.decision_config.actions):
+                    cond_err = validate_condition(action.condition)
+                    if cond_err is not None:
+                        errors.append(
+                            f"Decision step '{step.id}' action {i}: {cond_err}"
+                        )
+                    for sid in action.activate_steps:
+                        if sid not in step_ids:
+                            errors.append(
+                                f"Decision step '{step.id}' action {i}: "
+                                f"activate_steps references unknown step '{sid}'"
+                            )
+                    for sid in action.skip_steps:
+                        if sid not in step_ids:
+                            errors.append(
+                                f"Decision step '{step.id}' action {i}: "
+                                f"skip_steps references unknown step '{sid}'"
+                            )
+
         if step.type == "join" and not step.depends_on:
             errors.append(f"Join step '{step.id}' must have at least one depends_on")
 
@@ -117,6 +144,35 @@ def validate_plan(plan: Plan) -> list[str]:
             errors.append(
                 f"Warning: Step '{step.id}': max_critic_iterations set without critic_agent"
             )
+
+        if step.retry_config is not None and step.on_failure != "retry":
+            errors.append(
+                f"Step '{step.id}': retry_config is only valid when "
+                f"on_failure is 'retry', got '{step.on_failure}'"
+            )
+
+        if step.retry_config is not None:
+            rc = step.retry_config
+            if rc.max_retries < 1:
+                errors.append(
+                    f"Step '{step.id}': retry_config.max_retries must be >= 1, "
+                    f"got {rc.max_retries}"
+                )
+            if rc.backoff_seconds <= 0:
+                errors.append(
+                    f"Step '{step.id}': retry_config.backoff_seconds must be > 0, "
+                    f"got {rc.backoff_seconds}"
+                )
+            if rc.backoff_multiplier <= 0:
+                errors.append(
+                    f"Step '{step.id}': retry_config.backoff_multiplier must be > 0, "
+                    f"got {rc.backoff_multiplier}"
+                )
+            if rc.max_backoff_seconds <= 0:
+                errors.append(
+                    f"Step '{step.id}': retry_config.max_backoff_seconds must be > 0, "
+                    f"got {rc.max_backoff_seconds}"
+                )
 
     return errors
 
