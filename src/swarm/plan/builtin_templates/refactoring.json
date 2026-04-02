@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "goal": "Refactor {component} for {improvement_goal}",
+  "variables": {"component": "", "improvement_goal": "", "project_dir": "."},
+  "steps": [
+    {
+      "id": "analyze",
+      "type": "task",
+      "agent_type": "code-analyzer",
+      "prompt": "Analyze the current state of {component} in {project_dir} for refactoring toward {improvement_goal}. Assess: code structure and complexity metrics, coupling and cohesion, test coverage, performance bottlenecks, design pattern usage, technical debt indicators, and dependency graph. Identify the specific areas that need refactoring and quantify the improvement opportunity.",
+      "output_artifact": "analysis.md"
+    },
+    {
+      "id": "plan-refactor",
+      "type": "task",
+      "agent_type": "architect",
+      "prompt": "Design the refactoring plan for {component} to achieve {improvement_goal}. Using analysis.md, produce: target architecture with rationale, step-by-step refactoring sequence that keeps the system working at each step, risk assessment for each transformation, rollback strategy, estimated effort per step, and success criteria with measurable metrics. Ensure the plan preserves all existing functionality.",
+      "depends_on": ["analyze"],
+      "required_inputs": ["analysis.md"],
+      "output_artifact": "refactoring-plan.md"
+    },
+    {
+      "id": "approve-plan",
+      "type": "checkpoint",
+      "prompt": "Approve refactoring plan",
+      "depends_on": ["plan-refactor"],
+      "checkpoint_config": {"message": "Review refactoring-plan.md. Confirm the approach, risk mitigations, and effort estimates before implementation begins. Approve to start parallel implementation and test writing."}
+    },
+    {
+      "id": "implement",
+      "type": "task",
+      "agent_type": "implementer",
+      "prompt": "Implement the refactoring of {component} following refactoring-plan.md to achieve {improvement_goal}. Apply transformations in the planned sequence, ensure each step compiles and passes existing tests, use feature flags or abstractions where the plan calls for them, and document any deviations from the plan with justification.",
+      "depends_on": ["approve-plan"],
+      "required_inputs": ["refactoring-plan.md"],
+      "output_artifact": "implementation-log.md"
+    },
+    {
+      "id": "write-tests",
+      "type": "task",
+      "agent_type": "test-writer",
+      "prompt": "Write comprehensive tests for the refactored {component}. Using refactoring-plan.md, create: unit tests for all new abstractions and interfaces, integration tests verifying preserved behavior, performance benchmarks comparing before and after, edge case tests for any changed error handling, and regression tests for known issues from analysis.md.",
+      "depends_on": ["approve-plan"],
+      "required_inputs": ["refactoring-plan.md"],
+      "output_artifact": "test-report.md"
+    },
+    {
+      "id": "review",
+      "type": "task",
+      "agent_type": "code-reviewer",
+      "prompt": "Review the refactoring of {component} for {improvement_goal}. Examine implementation-log.md and test-report.md against the original refactoring-plan.md. Verify: all planned transformations were applied correctly, no functionality was lost, test coverage is adequate, code quality improved per the stated goals, performance meets targets, and no new technical debt was introduced. Produce a review summary with approval or required changes.",
+      "depends_on": ["implement", "write-tests"],
+      "required_inputs": ["refactoring-plan.md", "implementation-log.md", "test-report.md"],
+      "output_artifact": "review-summary.md"
+    }
+  ]
+}

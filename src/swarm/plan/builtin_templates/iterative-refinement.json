@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "goal": "Create high-quality {deliverable}",
+  "variables": {"deliverable": "", "context": ""},
+  "steps": [
+    {
+      "id": "draft",
+      "type": "task",
+      "agent_type": "technical-writer",
+      "prompt": "Write an initial draft of {deliverable}. Context: {context}. Focus on completeness and structure. Cover all essential sections, use clear language, and ensure logical flow. Produce a polished first draft that is ready for critical review.",
+      "output_artifact": "draft.md"
+    },
+    {
+      "id": "refine",
+      "type": "task",
+      "agent_type": "technical-writer",
+      "prompt": "Improve the draft at draft.md based on the critic's feedback. Address all identified issues: fix factual errors, strengthen weak arguments, improve clarity, fill content gaps, and polish the prose. Produce a revised version that resolves every critique point.",
+      "depends_on": ["draft"],
+      "required_inputs": ["draft.md"],
+      "output_artifact": "refined.md",
+      "critic_agent": "code-reviewer",
+      "max_critic_iterations": 3
+    },
+    {
+      "id": "approve",
+      "type": "checkpoint",
+      "prompt": "Final approval of {deliverable}",
+      "depends_on": ["refine"],
+      "checkpoint_config": {"message": "Review refined.md. The deliverable has been through up to 3 rounds of critique and revision. Approve to finalize."}
+    }
+  ]
+}

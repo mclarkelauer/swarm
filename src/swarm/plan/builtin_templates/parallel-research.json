@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "goal": "Research {topic} from multiple perspectives",
+  "variables": {"topic": ""},
+  "steps": [
+    {
+      "id": "research",
+      "type": "fan_out",
+      "prompt": "Research {topic} from multiple perspectives",
+      "fan_out_config": {
+        "branches": [
+          {
+            "agent_type": "technical-researcher",
+            "prompt": "Research the technical landscape of {topic}. Analyze: current state of the art, key technologies and frameworks, technical feasibility and constraints, architectural patterns, performance benchmarks, and emerging innovations. Cite sources and provide concrete examples.",
+            "output_artifact": "technical-research.md"
+          },
+          {
+            "agent_type": "market-researcher",
+            "prompt": "Research the market landscape for {topic}. Analyze: market size and growth trends, competitive landscape, pricing models, customer segments, adoption barriers, regulatory factors, and market timing considerations. Cite sources with data points.",
+            "output_artifact": "market-research.md"
+          },
+          {
+            "agent_type": "customer-researcher",
+            "prompt": "Research the user perspective on {topic}. Analyze: target user personas, pain points and unmet needs, current workarounds, user experience expectations, adoption patterns, community sentiment, and feedback from forums and reviews. Include direct quotes where available.",
+            "output_artifact": "user-research.md"
+          }
+        ]
+      }
+    },
+    {
+      "id": "synthesize",
+      "type": "join",
+      "agent_type": "technical-writer",
+      "prompt": "Synthesize the findings from technical-research.md, market-research.md, and user-research.md into a unified research report on {topic}. Identify: convergent themes across perspectives, contradictions or tensions between viewpoints, key insights and strategic implications, knowledge gaps requiring further investigation, and actionable recommendations. Structure the report with an executive summary, per-perspective highlights, cross-cutting analysis, and a recommendations section.",
+      "depends_on": ["research"],
+      "required_inputs": ["technical-research.md", "market-research.md", "user-research.md"],
+      "output_artifact": "research-synthesis.md"
+    },
+    {
+      "id": "approve",
+      "type": "checkpoint",
+      "prompt": "Review research synthesis",
+      "depends_on": ["synthesize"],
+      "checkpoint_config": {"message": "Review research-synthesis.md. Approve to finalize the research report."}
+    }
+  ]
+}

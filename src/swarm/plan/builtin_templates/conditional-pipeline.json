@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "goal": "Analyze and remediate {target}",
+  "variables": {"target": "", "scope": "full"},
+  "steps": [
+    {
+      "id": "analyze",
+      "type": "task",
+      "agent_type": "code-analyzer",
+      "prompt": "Analyze {target} with scope: {scope}. Scan for issues across quality, security, performance, and maintainability dimensions. Classify each finding as critical, high, medium, or low severity. If any critical findings are discovered, write them to a separate critical-findings.md artifact with detailed descriptions and evidence.",
+      "output_artifact": "analysis-report.md"
+    },
+    {
+      "id": "deep-dive",
+      "type": "task",
+      "agent_type": "security-auditor",
+      "prompt": "Perform a deep-dive investigation of the critical findings in critical-findings.md for {target}. For each critical finding: trace the root cause, assess the blast radius, determine exploitability or impact severity, identify all related code paths, and document the exact remediation steps required. Prioritize findings by risk.",
+      "depends_on": ["analyze"],
+      "required_inputs": ["critical-findings.md"],
+      "condition": "artifact_exists:critical-findings.md",
+      "output_artifact": "deep-dive-report.md"
+    },
+    {
+      "id": "remediate",
+      "type": "task",
+      "agent_type": "implementer",
+      "prompt": "Implement remediation for the critical findings documented in deep-dive-report.md for {target}. Apply fixes in priority order, ensure each fix is minimal and focused, add regression tests where appropriate, and verify that fixes do not introduce new issues. Document each change made.",
+      "depends_on": ["deep-dive"],
+      "required_inputs": ["deep-dive-report.md"],
+      "condition": "step_completed:deep-dive",
+      "output_artifact": "remediation-log.md"
+    },
+    {
+      "id": "verify",
+      "type": "task",
+      "agent_type": "test-writer",
+      "prompt": "Verify the remediation applied to {target}. Re-run the analysis checks against remediation-log.md to confirm all critical findings have been resolved. Run existing tests to ensure no regressions. Document the verification results and any remaining non-critical items.",
+      "depends_on": ["remediate"],
+      "condition": "step_completed:remediate",
+      "output_artifact": "verification-report.md"
+    },
+    {
+      "id": "approve",
+      "type": "checkpoint",
+      "prompt": "Review analysis and remediation results",
+      "depends_on": ["analyze"],
+      "checkpoint_config": {"message": "Review analysis-report.md and any remediation results. If critical findings were found, deep-dive-report.md and remediation-log.md will also be available. Approve to finalize."}
+    }
+  ]
+}

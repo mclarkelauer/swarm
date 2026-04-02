@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "goal": "Respond to incident: {incident_description}",
+  "variables": {"incident_description": "", "severity": "high", "service": ""},
+  "steps": [
+    {
+      "id": "triage",
+      "type": "task",
+      "agent_type": "security-auditor",
+      "prompt": "Triage the incident: {incident_description} affecting {service} (severity: {severity}). Assess: confirmed impact and scope, affected systems and users, immediate containment actions needed, initial severity classification, and communication requirements. Produce a triage summary with recommended next steps for parallel investigation tracks.",
+      "output_artifact": "triage-report.md"
+    },
+    {
+      "id": "investigate-logs",
+      "type": "task",
+      "agent_type": "code-analyzer",
+      "prompt": "Investigate the incident through log analysis for: {incident_description} in {service}. Using the triage report at triage-report.md, search logs for: error patterns, timeline of events leading to the incident, affected request paths, anomalous metrics, and correlation with recent deployments or configuration changes. Produce a detailed timeline and root cause hypothesis.",
+      "depends_on": ["triage"],
+      "required_inputs": ["triage-report.md"],
+      "output_artifact": "log-investigation.md",
+      "spawn_mode": "background"
+    },
+    {
+      "id": "investigate-code",
+      "type": "task",
+      "agent_type": "code-reviewer",
+      "prompt": "Investigate the incident through code analysis for: {incident_description} in {service}. Using the triage report at triage-report.md, examine: recent code changes that may have introduced the issue, relevant code paths for error conditions, configuration drift, dependency updates, and infrastructure changes. Identify the most likely code-level root cause.",
+      "depends_on": ["triage"],
+      "required_inputs": ["triage-report.md"],
+      "output_artifact": "code-investigation.md",
+      "spawn_mode": "background"
+    },
+    {
+      "id": "fix",
+      "type": "task",
+      "agent_type": "implementer",
+      "prompt": "Implement a fix for: {incident_description} in {service}. Synthesize findings from log-investigation.md and code-investigation.md. Apply the minimal, targeted fix that resolves the root cause. Ensure the fix is safe for production deployment, includes appropriate error handling, and does not introduce regressions. Document exactly what was changed and why.",
+      "depends_on": ["investigate-logs", "investigate-code"],
+      "required_inputs": ["log-investigation.md", "code-investigation.md"],
+      "output_artifact": "fix-summary.md"
+    },
+    {
+      "id": "verify",
+      "type": "task",
+      "agent_type": "test-writer",
+      "prompt": "Verify the incident fix for: {incident_description} in {service}. Review fix-summary.md and confirm: the fix addresses the root cause identified in investigations, existing tests still pass, new regression tests cover the failure mode, the fix performs correctly under load, and rollback procedures are documented if needed.",
+      "depends_on": ["fix"],
+      "required_inputs": ["fix-summary.md"],
+      "output_artifact": "verification-report.md"
+    },
+    {
+      "id": "postmortem",
+      "type": "task",
+      "agent_type": "technical-writer",
+      "prompt": "Write a postmortem for: {incident_description} in {service}. Use triage-report.md, log-investigation.md, code-investigation.md, fix-summary.md, and verification-report.md. Follow blameless postmortem format: incident summary, timeline of events, root cause analysis, impact assessment (duration, users affected, revenue impact), what went well, what went poorly, action items with owners and deadlines, and lessons learned.",
+      "depends_on": ["verify"],
+      "required_inputs": ["triage-report.md", "log-investigation.md", "code-investigation.md", "fix-summary.md", "verification-report.md"],
+      "output_artifact": "postmortem.md"
+    }
+  ]
+}

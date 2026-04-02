@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "goal": "Process {data_source} into {destination}",
+  "variables": {"data_source": "", "destination": "", "format": ""},
+  "steps": [
+    {
+      "id": "extract",
+      "type": "task",
+      "agent_type": "data-modeler",
+      "prompt": "Extract data from {data_source}. Identify the data format and schema, handle encoding and delimiter issues, log any malformed records, and produce a clean extracted dataset. Document the extraction metadata: record count, schema detected, any records skipped, and data quality observations.",
+      "output_artifact": "extracted-data.md",
+      "on_failure": "retry"
+    },
+    {
+      "id": "transform",
+      "type": "task",
+      "agent_type": "data-modeler",
+      "prompt": "Transform the extracted data from extracted-data.md for loading into {destination}. Apply format conversion to {format}, normalize fields, handle null values, deduplicate records, and apply any business rules. Log all transformations applied and any records that could not be transformed.",
+      "depends_on": ["extract"],
+      "required_inputs": ["extracted-data.md"],
+      "output_artifact": "transformed-data.md",
+      "on_failure": "skip"
+    },
+    {
+      "id": "validate",
+      "type": "task",
+      "agent_type": "data-interpreter",
+      "prompt": "Validate the transformed data in transformed-data.md before loading into {destination}. Check: schema conformity, referential integrity, business rule compliance, statistical outliers, completeness metrics, and compare record counts against the extraction phase. Produce a validation report with pass/fail status and details for any failures.",
+      "depends_on": ["transform"],
+      "required_inputs": ["transformed-data.md"],
+      "output_artifact": "validation-report.md"
+    },
+    {
+      "id": "approve-load",
+      "type": "checkpoint",
+      "prompt": "Review validation results before loading",
+      "depends_on": ["validate"],
+      "checkpoint_config": {"message": "Review validation-report.md. Confirm data quality is acceptable before loading into the destination. Approve to proceed with the load step."}
+    },
+    {
+      "id": "load",
+      "type": "task",
+      "agent_type": "data-modeler",
+      "prompt": "Load the validated data from transformed-data.md into {destination}. Execute the load operation, verify record counts match expectations from validation-report.md, confirm data accessibility in the destination, and document the load results including any warnings or partial failures.",
+      "depends_on": ["approve-load"],
+      "required_inputs": ["transformed-data.md", "validation-report.md"],
+      "output_artifact": "load-results.md"
+    }
+  ]
+}
