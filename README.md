@@ -15,7 +15,7 @@ git clone <repo-url> && cd swarm
 swarm
 ```
 
-That's it. You're in a Claude Code session with 31 MCP tools for agent management, plan building, and execution. Describe your goal and the orchestrator will:
+That's it. You're in a Claude Code session with 45 MCP tools for agent management, plan building, and execution. Describe your goal and the orchestrator will:
 
 1. Discover existing agents and suggest matches (`swarm_discover`, `forge_suggest_ranked`)
 2. Create specialized agents with focused system prompts, descriptions, and tags
@@ -30,6 +30,7 @@ swarm forge                      # forge session — design and manage agents
 swarm forge suggest "test"       # search for matching agents
 swarm ls                         # list agents and plans in current directory
 swarm run plan_v1.json           # walk a plan's DAG interactively
+swarm run --latest               # execute the latest plan interactively
 swarm run --latest --dry-run     # preview execution waves without running
 swarm status                     # show run progress from run_log.json
 swarm status --diagnose          # failure analysis with suggested fixes
