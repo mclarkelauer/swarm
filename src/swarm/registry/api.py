@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -10,6 +11,28 @@ from pathlib import Path
 from swarm.errors import RegistryError
 from swarm.registry.db import init_registry_db
 from swarm.registry.models import AgentDefinition
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """Convert a user query string into a safe FTS5 MATCH expression.
+
+    - Strips FTS5 operators to prevent injection
+    - Wraps each token in double-quotes with a trailing ``*`` for prefix
+      matching so that ``review`` matches ``reviewer``
+    - Joins tokens with implicit AND (FTS5 default)
+
+    Examples:
+        "python test"   -> '"python"* "test"*'
+        "code-reviewer" -> '"code"* "reviewer"*'
+        'he said "hi"'  -> '"he"* "said"* "hi"*'
+    """
+    # Remove FTS5 special characters: *, ^, NEAR, AND, OR, NOT, (, ), "
+    cleaned = re.sub(r'[*^"(){}]', ' ', query)
+    cleaned = re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', cleaned, flags=re.IGNORECASE)
+    tokens = cleaned.split()
+    if not tokens:
+        return '""'
+    return " ".join(f'"{token}"*' for token in tokens)
 
 
 class RegistryAPI:
@@ -21,7 +44,7 @@ class RegistryAPI:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._conn = init_registry_db(db_path)
+        self._conn, self._fts_available = init_registry_db(db_path)
 
     # ------------------------------------------------------------------
     # helpers
@@ -133,15 +156,122 @@ class RegistryAPI:
             cur = self._conn.execute(f"SELECT {self._SELECT_COLS} FROM agents")
         return [self._row_to_definition(r) for r in cur.fetchall()]
 
-    def search(self, query: str) -> list[AgentDefinition]:
-        """Search by substring match on name, system prompt, description, and tags."""
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 200,
+    ) -> list[AgentDefinition]:
+        """Search agents by text query.
+
+        Uses FTS5 MATCH with BM25 ranking when available, falls back to LIKE.
+
+        Args:
+            query: The search query string.
+            limit: Maximum number of results to return (default 200).
+
+        Returns:
+            List of matching AgentDefinition objects, ordered by relevance.
+        """
+        if self._fts_available:
+            return self._search_fts(query, limit=limit)
+        return self._search_like(query)
+
+    def _search_fts(self, query: str, *, limit: int = 200) -> list[AgentDefinition]:
+        """FTS5 MATCH search with BM25 ranking."""
+        sanitized = _sanitize_fts_query(query)
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM agents "
+            "WHERE rowid IN ("
+            "    SELECT rowid FROM agents_fts WHERE agents_fts MATCH ? "
+            "    ORDER BY bm25(agents_fts) LIMIT ?"
+            ")",
+            (sanitized, limit),
+        )
+        return [self._row_to_definition(r) for r in cur.fetchall()]
+
+    def _search_like(self, query: str) -> list[AgentDefinition]:
+        """Fallback LIKE search (existing behavior)."""
         pattern = f"%{query}%"
         cur = self._conn.execute(
             f"SELECT {self._SELECT_COLS} FROM agents "
-            "WHERE name LIKE ? OR system_prompt LIKE ? OR description LIKE ? OR tags LIKE ?",
+            "WHERE name LIKE ? OR system_prompt LIKE ? "
+            "OR description LIKE ? OR tags LIKE ?",
             (pattern, pattern, pattern, pattern),
         )
         return [self._row_to_definition(r) for r in cur.fetchall()]
+
+    def search_with_snippets(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Search with snippet extraction for result highlighting.
+
+        Returns dicts with agent summary fields plus a 'snippets' dict
+        containing highlighted matches from each indexed column.
+
+        Args:
+            query: The search query string.
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of dicts: {id, name, description, tags, rank, snippets}.
+        """
+        if not self._fts_available:
+            # Fallback: return results without snippets
+            agents = self._search_like(query)
+            return [
+                {
+                    "id": a.id,
+                    "name": a.name,
+                    "description": a.description,
+                    "tags": list(a.tags),
+                    "rank": 0.0,
+                    "snippets": {},
+                }
+                for a in agents[:limit]
+            ]
+
+        sanitized = _sanitize_fts_query(query)
+        cur = self._conn.execute(
+            "SELECT "
+            "  a.id, a.name, a.description, a.tags, "
+            "  bm25(agents_fts) AS rank, "
+            "  snippet(agents_fts, 0, '<b>', '</b>', '...', 32) AS snip_name, "
+            "  snippet(agents_fts, 1, '<b>', '</b>', '...', 64) AS snip_desc, "
+            "  snippet(agents_fts, 2, '<b>', '</b>', '...', 64) AS snip_prompt, "
+            "  snippet(agents_fts, 3, '<b>', '</b>', '...', 32) AS snip_tags "
+            "FROM agents_fts "
+            "JOIN agents a ON agents_fts.rowid = a.rowid "
+            "WHERE agents_fts MATCH ? "
+            "ORDER BY bm25(agents_fts) "
+            "LIMIT ?",
+            (sanitized, limit),
+        )
+        results: list[dict[str, object]] = []
+        for row in cur.fetchall():
+            snippets: dict[str, str] = {}
+            if row[5]:
+                snippets["name"] = row[5]
+            if row[6]:
+                snippets["description"] = row[6]
+            if row[7]:
+                snippets["system_prompt"] = row[7]
+            if row[8]:
+                snippets["tags"] = row[8]
+            results.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "tags": json.loads(row[3]) if isinstance(row[3], str) else row[3],
+                    "rank": row[4],
+                    "snippets": snippets,
+                }
+            )
+        return results
 
     def clone(self, agent_id: str, overrides: dict[str, str | int | list[str]]) -> AgentDefinition:
         """Clone an existing definition with overrides. Sets ``parent_id``.

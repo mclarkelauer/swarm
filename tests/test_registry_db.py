@@ -17,19 +17,19 @@ class TestInitRegistryDb:
         assert db_path.exists()
 
     def test_wal_mode_enabled(self, tmp_path: Path) -> None:
-        conn = init_registry_db(tmp_path / "registry.db")
+        conn, _ = init_registry_db(tmp_path / "registry.db")
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
         assert mode == "wal"
 
     def test_agents_table_exists(self, tmp_path: Path) -> None:
-        conn = init_registry_db(tmp_path / "registry.db")
+        conn, _ = init_registry_db(tmp_path / "registry.db")
         cur = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
         )
         assert cur.fetchone() is not None
 
     def test_insert_and_retrieve(self, tmp_path: Path) -> None:
-        conn = init_registry_db(tmp_path / "registry.db")
+        conn, _ = init_registry_db(tmp_path / "registry.db")
         conn.execute(
             "INSERT INTO agents (id, name, system_prompt, tools, permissions, "
             "working_dir, source, created_at) "
@@ -41,7 +41,7 @@ class TestInitRegistryDb:
         assert cur.fetchone()[0] == "test"
 
     def test_foreign_key_parent_id(self, tmp_path: Path) -> None:
-        conn = init_registry_db(tmp_path / "registry.db")
+        conn, _ = init_registry_db(tmp_path / "registry.db")
         # Insert parent
         conn.execute(
             "INSERT INTO agents (id, name, system_prompt) VALUES (?, ?, ?)",
@@ -58,13 +58,13 @@ class TestInitRegistryDb:
 
     def test_idempotent_initialization(self, tmp_path: Path) -> None:
         db_path = tmp_path / "registry.db"
-        conn1 = init_registry_db(db_path)
+        conn1, _ = init_registry_db(db_path)
         conn1.execute(
             "INSERT INTO agents (id, name, system_prompt) VALUES ('x', 'x', 'p')"
         )
         conn1.commit()
         conn1.close()
-        conn2 = init_registry_db(db_path)
+        conn2, _ = init_registry_db(db_path)
         cur = conn2.execute("SELECT id FROM agents WHERE id = 'x'")
         assert cur.fetchone() is not None
 
@@ -108,7 +108,7 @@ class TestMigration:
         old_conn.close()
 
         # Run init_registry_db on the existing DB — should add missing columns
-        new_conn = init_registry_db(db_path)
+        new_conn, _ = init_registry_db(db_path)
 
         # Both new columns must exist now
         col_info = new_conn.execute("PRAGMA table_info(agents)").fetchall()
@@ -153,7 +153,7 @@ class TestMigration:
         old_conn.close()
 
         # Apply current init_registry_db — must add the four new columns
-        new_conn = init_registry_db(db_path)
+        new_conn, _ = init_registry_db(db_path)
 
         col_info = new_conn.execute("PRAGMA table_info(agents)").fetchall()
         col_names = {row[1] for row in col_info}
@@ -174,14 +174,14 @@ class TestMigration:
 
     def test_new_schema_includes_performance_columns(self, tmp_path: Path) -> None:
         """A freshly created database already has all performance columns."""
-        conn = init_registry_db(tmp_path / "fresh.db")
+        conn, _ = init_registry_db(tmp_path / "fresh.db")
         col_info = conn.execute("PRAGMA table_info(agents)").fetchall()
         col_names = {row[1] for row in col_info}
         for col in ("usage_count", "failure_count", "last_used", "notes"):
             assert col in col_names
 
     def test_insert_with_performance_fields(self, tmp_path: Path) -> None:
-        conn = init_registry_db(tmp_path / "registry.db")
+        conn, _ = init_registry_db(tmp_path / "registry.db")
         conn.execute(
             "INSERT INTO agents (id, name, system_prompt, usage_count, failure_count, last_used, notes) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
