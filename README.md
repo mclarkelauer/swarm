@@ -15,7 +15,7 @@ git clone <repo-url> && cd swarm
 swarm
 ```
 
-That's it. You're in a Claude Code session with 45 MCP tools for agent management, plan building, and execution. Describe your goal and the orchestrator will:
+That's it. You're in a Claude Code session with 45 MCP tools for agent management, plan building, execution, memory, and messaging. Describe your goal and the orchestrator will:
 
 1. Discover existing agents and suggest matches (`swarm_discover`, `forge_suggest_ranked`)
 2. Create specialized agents with focused system prompts, descriptions, and tags
@@ -80,15 +80,18 @@ For the full catalog with all 66 agents, see [design.md](design.md#base-agent-ca
   v
 Claude Code (orchestrator)
   |
-  ├── Swarm MCP Server (31 tools)
-  |     ├── Discovery    — swarm_discover, forge_suggest_ranked
-  |     ├── Forge        — create, clone, export, import, annotate agents
-  |     ├── Plan         — templates, create, amend, execute, retrospective
-  |     ├── Registry     — browse, inspect, search the agent catalog
-  |     └── Artifacts    — declare, list, query step outputs
+  ├── Swarm MCP Server (45 tools)
+  |     ├── Discovery    — swarm_discover (lightweight catalog browsing)
+  |     ├── Forge (11)   — create, clone, export, import, suggest_ranked, annotate agents
+  |     ├── Plan (14)    — templates, create, amend, execute_step, replan, retrospective, visualize
+  |     ├── Executor (4) — plan_run, plan_run_status, plan_run_resume, plan_run_cancel
+  |     ├── Registry (5) — list, inspect, search (FTS5), search_ranked, remove
+  |     ├── Artifacts (3)— declare, list, get (with metadata)
+  |     ├── Memory (4)   — store, recall, forget, prune (time-based decay)
+  |     └── Messaging (3)— send, receive, broadcast (inter-agent communication)
   |
   └── Subagents (spawned by Claude Code)
-        ├── researcher    — with forge-defined system prompt
+        ├── researcher    — with forge-defined system prompt + memory injection
         ├── implementer   — with forge-defined system prompt
         ├── reviewer      — with forge-defined system prompt (critic loop)
         └── ...
@@ -147,7 +150,7 @@ swarm sync                          Import .swarm/agents/ into registry
 swarm mcp-config                    Print MCP server config for Claude Code
 ```
 
-## MCP Tools (31 total)
+## MCP Tools (45 total)
 
 ### Discover & Select Agents
 | Tool | Description |
@@ -197,8 +200,32 @@ swarm mcp-config                    Print MCP server config for Claude Code
 |------|-------------|
 | `registry_list` | List all registered agents |
 | `registry_inspect` | Full details + provenance chain |
-| `registry_search` | Search by name, description, or tags |
+| `registry_search` | FTS5 full-text search by name, description, or tags |
+| `registry_search_ranked` | Semantic ranking with LLM re-ranking prompt |
 | `registry_remove` | Remove an agent |
+
+### Execution
+| Tool | Description |
+|------|-------------|
+| `plan_run` | Execute a plan autonomously with retry, loops, critic cycles |
+| `plan_run_status` | Get current run status and progress |
+| `plan_run_resume` | Resume a crashed/interrupted run from checkpoint |
+| `plan_run_cancel` | Cancel a running plan execution |
+
+### Memory
+| Tool | Description |
+|------|-------------|
+| `memory_store` | Store episodic/semantic/procedural memory for an agent |
+| `memory_recall` | Recall memories with FTS5 search and time-based decay |
+| `memory_forget` | Remove specific memories |
+| `memory_prune` | Prune low-relevance memories (threshold 0.1) |
+
+### Messaging
+| Tool | Description |
+|------|-------------|
+| `agent_send_message` | Send a message to a specific agent |
+| `agent_receive_messages` | Receive messages for the current agent |
+| `agent_broadcast` | Broadcast a message to all agents in the run |
 
 ## Plan Format
 
@@ -232,7 +259,8 @@ Plans are JSON files defining a DAG of steps:
 |------|-------------|
 | `task` | Agent does work. Supports `critic_agent` for automatic quality review loops. |
 | `checkpoint` | Pause for user review before continuing. |
-| `loop` | Repeated execution with termination conditions. |
+| `loop` | Repeated execution with termination conditions (inverted semantics: continues while False). |
+| `decision` | Inline evaluation that activates/skips downstream branches via conditional actions. |
 | `fan_out` | Spawn multiple agents in parallel (requires `fan_out_config`). |
 | `join` | Collect results from parallel branches. |
 
@@ -246,7 +274,12 @@ Plans are JSON files defining a DAG of steps:
 | `spawn_mode` | `foreground` (default) or `background` |
 | `condition` | Gating expression: `artifact_exists:<path>`, `step_completed:<id>`, `step_failed:<id>`, `always`, `never` |
 | `critic_agent` | Agent type that reviews this step's output (task steps only) |
+| `max_critic_iterations` | Max iterations for critic loop (default 3) |
+| `retry_config` | Exponential backoff config: `max_retries`, `backoff_seconds`, `backoff_multiplier`, `max_backoff_seconds` |
 | `required_tools` | Tools this step needs (validated against agent's tool list) |
+| `message_to` | Target agent name for message routing |
+| `decision_config` | Conditional actions for decision steps (activate/skip branches) |
+| `loop_config` | Loop configuration: `condition`, `max_iterations` |
 
 ### Built-in Templates
 
@@ -255,7 +288,7 @@ Plans are JSON files defining a DAG of steps:
 # plan_template_list, plan_template_instantiate
 ```
 
-Ships with 6 templates: `business-plan`, `code-review`, `feature-build`, `hiring-pipeline`, `product-launch`, `security-audit`.
+Ships with 12 templates: `business-plan`, `code-review`, `conditional-pipeline`, `data-pipeline`, `feature-build`, `hiring-pipeline`, `incident-response`, `iterative-refinement`, `parallel-research`, `product-launch`, `refactoring`, `security-audit`.
 
 ## Agent Definition
 
@@ -305,9 +338,10 @@ Agents can also be exported to Claude Code's native `.claude/agents/<name>.md` f
 
 ```bash
 uv sync                          # Install dependencies
-uv run pytest tests/ -v          # Run tests (863 tests)
+uv run pytest tests/ -v          # Run tests (1,272 tests)
+uv run pytest tests/ --cov=src   # Run tests with coverage
 uv run ruff check src/           # Lint
-uv run mypy src/                 # Type check (strict)
+uv run mypy src/                 # Type check (strict mode)
 ```
 
 ## Documentation
