@@ -42,6 +42,27 @@ def registry_search(query: str) -> str:
 
 
 @mcp.tool()
+def registry_search_ranked(query: str, limit: str = "20") -> str:
+    """Search agents with BM25 ranking and snippet highlighting.
+
+    Returns ranked results with highlighted snippets showing where
+    the query matched in each agent's name, description, prompt, or tags.
+
+    Args:
+        query: Search terms (space-separated, implicitly ANDed).
+        limit: Maximum results to return (default 20).
+
+    Returns:
+        JSON array of {id, name, description, tags, rank, snippets}.
+    """
+    assert state.registry_api is not None
+    results = state.registry_api.search_with_snippets(
+        query, limit=int(limit)
+    )
+    return json.dumps(results)
+
+
+@mcp.tool()
 def registry_remove(agent_id: str = "", name: str = "") -> str:
     """Remove an agent definition from the registry.
 
