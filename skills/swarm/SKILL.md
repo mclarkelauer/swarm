@@ -365,9 +365,70 @@ Use `forge_suggest_ranked` for semantic ranking instead of `forge_suggest`.
 ### Memory not recalled
 Check time decay - memories older than 30 days have exponentially lower relevance.
 
+## Swarm HUD (tmux)
+
+If you use tmux, Swarm includes a heads-up display to visualize plan execution in your status bar.
+
+### Setup
+
+Add to `~/.tmux.conf`:
+
+```bash
+# Swarm plan execution HUD (adds a status line)
+set -g status 3
+set -g status-format[2] '#(python3 ~/.local/share/swarm/bin/swarm-hud.py)'
+```
+
+Reload tmux:
+```bash
+tmux source ~/.tmux.conf
+```
+
+### What It Shows
+
+**Compact mode (default):**
+```
+📋 Build API security [Wave 2/4] ━━━━━━━╸━━━━━━━ 6/12 [●●○] 3m15s
+```
+
+Components:
+- `📋` - Plan icon (✅ complete, ❌ failed)
+- Goal - Truncated plan goal
+- `[Wave 2/4]` - Current/total execution waves
+- Progress bar - Visual step completion
+- `6/12` - Steps completed/total
+- `[●●○]` - Active agents (● working, ○ waiting)
+- `3m15s` - Elapsed time
+
+**Expanded mode:**
+```
+📋 Build API security | Wave 2/4 | 6/12 steps | ⏱ 3m15s
+  🟢 implementer  🟢 test-writer  🟡 code-reviewer (waiting)
+```
+
+Use: `swarm-hud.py --expanded`
+
+### Display Modes
+
+- **Mode 1**: `swarm-hud.py` - Compact progress bar (default)
+- **Mode 2**: `swarm-hud.py --expanded` - 2-line dashboard
+- **Mode 3**: `swarm-hud.py --per-window` - Per-window badges (experimental)
+
+### Combined with Agent Constellation
+
+Swarm HUD complements the tmux-statusline agent constellation:
+
+```
+[1:🟢] [2:🟢] [3:🟡 30s]                          Agent States
+📋 Build API security [Wave 2/4] ━━━╸━━━ 6/12 [●●○] 3m15s  Plan State
+```
+
+Top line: Individual agent status (from tmux-statusline plugin)
+Bottom line: Plan orchestration (Swarm HUD)
+
 ## Learn More
 
 - **Full catalog**: `swarm catalog list`
 - **Plan templates**: `plan_template_list()`
 - **Tool reference**: See README.md
-- **Design docs**: docs/tier{1,2,3}-design.md
+- **Design docs**: docs/tier{1,2,3}-design.md, docs/swarm-hud-design.md

@@ -20,6 +20,7 @@ from typing import Any
 import structlog
 
 from swarm.errors import ExecutionError
+from swarm.hud import emit_plan_complete, emit_plan_start, emit_step_complete, emit_step_start
 from swarm.plan.conditions import evaluate_condition
 from swarm.plan.dag import get_ready_steps
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
@@ -189,6 +190,9 @@ def record_success(
     write_run_log(run_state.log, run_state.log_path)
     logger.info("step_completed", step_id=step.id, attempt=attempt, message=message)
 
+    # Emit HUD event
+    emit_step_complete(run_state.log.run_id, step.id, success=True)
+
 
 def record_failure(
     run_state: RunState,
@@ -214,6 +218,9 @@ def record_failure(
     run_state.log.steps.append(outcome)
     write_run_log(run_state.log, run_state.log_path)
     logger.warning("step_failed", step_id=step.id, attempt=attempt, message=message)
+
+    # Emit HUD event
+    emit_step_complete(run_state.log.run_id, step.id, success=False)
 
 
 def record_skip(
@@ -276,6 +283,14 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
     attempt = run_state.retry_counts.get(step.id, 0)
     retry_config = step.retry_config
     max_retries = retry_config.max_retries if retry_config else 0
+
+    # Emit HUD step start event
+    emit_step_start(
+        run_id=run_state.log.run_id,
+        step_id=step.id,
+        agent_type=step.agent_type,
+        session_id=None,  # Session ID not available until after launch
+    )
 
     while True:
         step_started_at = _iso_now()
@@ -878,6 +893,16 @@ def init_run_state(
     )
     write_run_log(log, run_log_path)
 
+    # Emit HUD plan start event
+    # TODO: Calculate total_waves from DAG analysis
+    emit_plan_start(
+        run_id=log.run_id,
+        plan_path=str(plan_path),
+        goal=plan.goal,
+        total_steps=len(plan.steps),
+        total_waves=0,  # Will be calculated dynamically during execution
+    )
+
     return RunState(
         plan=plan,
         log=log,
@@ -906,6 +931,10 @@ def finalize(run_state: RunState, status: str) -> dict[str, Any]:
             checkpoint_message = None
 
     write_run_log(run_state.log, run_state.log_path)
+
+    # Emit HUD plan complete event (unless paused - paused plans may resume)
+    if status in ("completed", "failed"):
+        emit_plan_complete(run_state.log.run_id, success=(status == "completed"))
 
     all_ids = {s.id for s in run_state.plan.steps}
     remaining = all_ids - run_state.completed - run_state.skipped - run_state.failed
