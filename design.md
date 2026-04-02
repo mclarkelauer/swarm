@@ -1,6 +1,6 @@
 # Swarm
 
-Swarm is an MCP tool server and agent registry for multi-agent orchestration with Claude Code. It provides 31 MCP tools for designing specialized agents, managing a persistent agent catalog, building DAG-based execution plans, and closing the feedback loop — all accessible inside a Claude Code session.
+Swarm is an MCP tool server and agent registry for multi-agent orchestration with Claude Code. It provides 45 MCP tools for designing specialized agents, managing a persistent agent catalog, building DAG-based execution plans with advanced features (loops, decision branches, critic cycles, retry policies), agent memory, inter-agent messaging, and closing the feedback loop — all accessible inside a Claude Code session.
 
 ## Architecture
 
@@ -315,20 +315,23 @@ User templates in `~/.swarm/templates/` override built-ins on name collision.
 
 ## MCP Server
 
-The `swarm-mcp` server provides all 31 tools to Claude Code sessions.
+The `swarm-mcp` server provides all 45 tools to Claude Code sessions across 8 categories: Discovery (1), Forge (11), Plan (14), Executor (4), Registry (5), Artifacts (3), Memory (4), and Messaging (3).
 
 ### Environment Variables
 - `SWARM_BASE_DIR` — root Swarm directory (default: `~/.swarm`)
 - `SWARM_PLANS_DIR` — directory for plan files (default: current working directory)
 
-### Tools Summary (31 tools)
+### Tools Summary (45 tools)
 | Category | Tools |
 |----------|-------|
-| Discovery | `swarm_discover` |
-| Forge | `forge_list`, `forge_get`, `forge_create`, `forge_clone`, `forge_suggest`, `forge_suggest_ranked`, `forge_remove`, `forge_export_subagent`, `forge_import_subagents`, `forge_annotate_from_run` |
-| Plan | `plan_template_list`, `plan_template_instantiate`, `plan_create`, `plan_validate`, `plan_validate_policies`, `plan_amend`, `plan_patch_step`, `plan_load`, `plan_list`, `plan_execute_step`, `plan_get_ready_steps`, `plan_get_step`, `plan_retrospective` |
-| Registry | `registry_list`, `registry_inspect`, `registry_search`, `registry_remove` |
-| Artifacts | `artifact_declare`, `artifact_list`, `artifact_get` |
+| Discovery (1) | `swarm_discover` |
+| Forge (11) | `forge_list`, `forge_get`, `forge_create`, `forge_clone`, `forge_suggest`, `forge_suggest_ranked`, `forge_remove`, `forge_export_subagent`, `forge_import_subagents`, `forge_annotate_from_run` |
+| Plan (14) | `plan_template_list`, `plan_template_instantiate`, `plan_create`, `plan_validate`, `plan_validate_policies`, `plan_amend`, `plan_patch_step`, `plan_load`, `plan_list`, `plan_execute_step`, `plan_get_ready_steps`, `plan_get_step`, `plan_retrospective`, `plan_visualize`, `plan_replan` |
+| Executor (4) | `plan_run`, `plan_run_status`, `plan_run_resume`, `plan_run_cancel` |
+| Registry (5) | `registry_list`, `registry_inspect`, `registry_search`, `registry_search_ranked`, `registry_remove` |
+| Artifacts (3) | `artifact_declare`, `artifact_list`, `artifact_get` |
+| Memory (4) | `memory_store`, `memory_recall`, `memory_forget`, `memory_prune` |
+| Messaging (3) | `agent_send_message`, `agent_receive_messages`, `agent_broadcast` |
 
 ---
 

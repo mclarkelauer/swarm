@@ -121,6 +121,7 @@
 ## 4. MCP Tool Count
 
 **Previous**: 31 tools
+**Current**: 45 tools (Discovery, Forge, Plan, Executor, Registry, Artifacts, Memory, Messaging)
 **Current**: 45 tools (+14 new)
 
 ### Full tool list by module (45 total)
@@ -217,9 +218,9 @@ The following items in `CLAUDE.md` are stale and need updating:
 
 | Item | Current Value | Correct Value |
 |------|---------------|---------------|
-| Tool count (line 4) | "31 MCP tools" | "45 MCP tools" |
-| Test count (line 11) | "863 tests" | "1,272 tests" |
-| Test count in Running section (line 58) | "863 tests" | "1,272 tests" |
+| Tool count (line 4) | "31 MCP tools" | "45 MCP tools" | ✅ Updated |
+| Test count (line 11) | "863 tests" | "1,272 tests" | ✅ Updated |
+| Test count in Running section (line 58) | "863 tests" | "1,272 tests" | ✅ Updated |
 | MCP Server description (line 27) | "31 FastMCP tools" | "45 FastMCP tools" |
 | Subsystem list (lines 23-28) | Missing Memory, Messaging, Executor | Add 3 new subsystems |
 | Key modules list (lines 30-40) | Missing 7 key modules | Add executor, launcher, visualization, memory, messaging modules |
