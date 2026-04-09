@@ -3,7 +3,6 @@
 Implements the autonomous plan executor that drives a plan DAG to
 completion by launching ``claude`` CLI subprocesses for each agent step.
 
-See design-execution-loop.md sections 5.1--5.7 for the algorithm.
 """
 
 from __future__ import annotations

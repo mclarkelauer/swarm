@@ -431,4 +431,4 @@ Bottom line: Plan orchestration (Swarm HUD)
 - **Full catalog**: `swarm catalog list`
 - **Plan templates**: `plan_template_list()`
 - **Tool reference**: See README.md
-- **Design docs**: docs/tier{1,2,3}-design.md, docs/swarm-hud-design.md
+- **Plan guide**: docs/writing-plans.md

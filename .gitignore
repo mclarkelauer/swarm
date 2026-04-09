@@ -15,11 +15,13 @@ build/
 .ruff_cache/
 htmlcov/
 
-# Swarm runtime data
+# Swarm runtime / plan artifacts
 *.db
 artifacts.json
 plan_v*.json
 run_log.json
+*.verdict.json
+.swarm/
 
 # IDE
 .idea/

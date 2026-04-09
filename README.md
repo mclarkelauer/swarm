@@ -86,8 +86,6 @@ swarm catalog show code-reviewer
 
 Once cloned, specialize the agent by refining the system prompt, adding domain-specific tools, and tuning performance. The feedback loop tracks usage and failures, so specialized agents improve over time.
 
-For the full catalog with all 66 agents, see [design.md](design.md#base-agent-catalog).
-
 ## How It Works
 
 ```
@@ -359,13 +357,6 @@ uv run pytest tests/ --cov=src   # Run tests with coverage
 uv run ruff check src/           # Lint
 uv run mypy src/                 # Type check (strict mode)
 ```
-
-## Documentation
-
-- [Tier 1 Design](docs/tier1-design.md) — Model enrichment specification
-- [Tier 2 Design](docs/tier2-design.md) — Bridge tools specification
-- [Tier 3 Design](docs/tier3-design.md) — Smarter execution specification
-- [Design Specification](design.md) — Original system design
 
 ## Tech Stack
 
