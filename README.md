@@ -55,7 +55,7 @@ The skill provides:
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
 - [Claude CLI](https://docs.anthropic.com/en/docs/claude-code)
 
@@ -360,4 +360,4 @@ uv run mypy src/                 # Type check (strict mode)
 
 ## Tech Stack
 
-Python 3.13+ | Click | structlog | SQLite (WAL) | FastMCP | Rich
+Python 3.12+ | Click | structlog | SQLite (WAL) | FastMCP | Rich

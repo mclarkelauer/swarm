@@ -14,8 +14,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SWARM_VERSION="0.1.0"
-MIN_PYTHON="3.13"
+SWARM_VERSION="0.2.0"
+MIN_PYTHON="3.12"
 DATA_DIR="${HOME}/.swarm"
 
 # Colors (disabled if not a terminal)
@@ -50,7 +50,7 @@ version_ge() {
 
 detect_python() {
     local py=""
-    for candidate in python3.13 python3.14 python3; do
+    for candidate in python3.12 python3.13 python3.14 python3; do
         if check_command "$candidate"; then
             local ver
             ver="$("$candidate" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
@@ -83,7 +83,7 @@ check_prerequisites() {
     else
         err "Python >= $MIN_PYTHON not found"
         echo "   Install: https://docs.python.org/3/using/index.html"
-        echo "   Or:      pyenv install 3.13"
+        echo "   Or:      pyenv install 3.12"
         all_ok=false
     fi
 

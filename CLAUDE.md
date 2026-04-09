@@ -4,7 +4,7 @@
 Swarm is an MCP tool server and agent registry that extends Claude Code for multi-agent orchestration. It provides 45 MCP tools for designing specialized agents, managing a persistent agent catalog with FTS5 full-text search, building and executing DAG-based plans with conditional gating, loop steps, decision branches, fan-out/join, critic loops, retry policies, and dynamic replanning, plus agent memory with time-based decay, inter-agent messaging, and bidirectional Claude Code integration via subagent export/import — all accessible inside a Claude Code session.
 
 ## Tech Stack
-- **Language**: Python 3.13+
+- **Language**: Python 3.12+
 - **Package manager**: uv
 - **Build system**: hatchling via pyproject.toml
 - **Project layout**: `src/swarm/` (src layout)

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "swarm"
 version = "0.2.0"
 description = "MCP tool server and agent registry for multi-agent orchestration with Claude Code"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "click>=8.1",
     "structlog>=24.0",
@@ -37,7 +37,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 src = ["src"]
-target-version = "py313"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
@@ -45,7 +45,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
 [tool.mypy]
-python_version = "3.13"
+python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["swarm"]
