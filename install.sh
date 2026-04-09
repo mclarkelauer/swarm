@@ -236,15 +236,6 @@ CONF
     cp "${SCRIPT_DIR}/skills/swarm/SKILL.md" "$skill_dir/"
     ok "/swarm skill installed"
 
-    # Step 6: Install HUD script
-    echo
-    info "Installing Swarm HUD for tmux..."
-    local hud_dir="${HOME}/.local/share/swarm/bin"
-    mkdir -p "$hud_dir"
-    cp "${SCRIPT_DIR}/src/swarm/hud/swarm-hud.py" "$hud_dir/"
-    chmod +x "$hud_dir/swarm-hud.py"
-    ok "HUD script installed to $hud_dir"
-
     echo
     echo "Commands available:"
     echo "  swarm                    Launch orchestrator session"
@@ -259,11 +250,6 @@ CONF
     echo "  1. Run: swarm"
     echo "  2. Describe your goal — the orchestrator will design agents and a plan"
     echo "  3. Or use /swarm in any Claude session for guidance"
-    echo
-    echo "Optional: To enable Swarm HUD in tmux, add to ~/.tmux.conf:"
-    echo "  set -g status 3"
-    echo "  set -g status-format[2] '#(python3 ~/.local/share/swarm/bin/swarm-hud.py)'"
-    echo "Then reload: tmux source ~/.tmux.conf"
     echo
 }
 
