@@ -184,6 +184,46 @@ def forge_suggest_ranked(query: str) -> str:
 
 
 @mcp.tool()
+def forge_diff(agent_id_a: str, agent_id_b: str) -> str:
+    """Compare two agent definitions and show differences.
+
+    Useful for comparing an agent with its parent or two versions
+    of the same agent.
+
+    Args:
+        agent_id_a: First agent ID or name.
+        agent_id_b: Second agent ID or name.
+
+    Returns:
+        JSON object with field-by-field comparison.
+    """
+    assert state.registry_api is not None
+    agent_a = state.registry_api.resolve_agent(agent_id_a)
+    agent_b = state.registry_api.resolve_agent(agent_id_b)
+
+    a_dict = agent_a.to_dict()
+    b_dict = agent_b.to_dict()
+
+    # Compare field by field
+    diffs: dict[str, dict[str, object]] = {}
+    all_keys = set(a_dict.keys()) | set(b_dict.keys())
+    skip_keys = {"id", "created_at", "parent_id"}  # always differ
+
+    for key in sorted(all_keys - skip_keys):
+        val_a = a_dict.get(key)
+        val_b = b_dict.get(key)
+        if val_a != val_b:
+            diffs[key] = {"a": val_a, "b": val_b}
+
+    return json.dumps({
+        "agent_a": {"id": agent_a.id, "name": agent_a.name, "version": agent_a.version},
+        "agent_b": {"id": agent_b.id, "name": agent_b.name, "version": agent_b.version},
+        "differences": diffs,
+        "fields_changed": len(diffs),
+    })
+
+
+@mcp.tool()
 def forge_remove(agent_id: str) -> str:
     """Remove an agent definition from the registry."""
     assert state.registry_api is not None

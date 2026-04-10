@@ -15,8 +15,10 @@ from swarm.plan.templates import (
     USER_TEMPLATES_DIR,
     _safe_interpolate,
     instantiate_template,
+    list_template_params,
     list_templates,
     load_template,
+    load_templates,
 )
 
 
@@ -420,3 +422,85 @@ class TestPlanTemplateInstantiateTool:
         result = json.loads(plan_template_instantiate("code-review"))
         assert result["errors"] == []
         assert Path(result["path"]).exists()
+
+
+# ---------------------------------------------------------------------------
+# Template parameter definitions
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateParameterDefinitions:
+    def test_list_templates_includes_category(self) -> None:
+        """Templates with a category field must expose it in list_templates."""
+        templates = list_templates()
+        by_name = {t["name"]: t for t in templates}
+        assert by_name["code-review"]["category"] == "development"
+        assert by_name["feature-build"]["category"] == "development"
+        assert by_name["iterative-refinement"]["category"] == "workflow"
+
+    def test_list_templates_includes_description(self) -> None:
+        """Templates with a description field must expose it in list_templates."""
+        templates = list_templates()
+        by_name = {t["name"]: t for t in templates}
+        assert by_name["code-review"]["description"] == "Code review pipeline"
+        assert by_name["feature-build"]["description"] == "Feature development workflow"
+        assert by_name["iterative-refinement"]["description"] == "Draft/critic/refine iteration cycle"
+
+    def test_list_template_params(self) -> None:
+        """list_template_params must return parameter_definitions for code-review."""
+        result = list_template_params("code-review")
+        assert "error" not in result
+        assert result["name"] == "code-review"
+        assert result["description"] == "Code review pipeline"
+        assert result["category"] == "development"
+
+        params = result["parameter_definitions"]
+        assert "description" in params
+        assert params["description"]["required"] is True
+        assert params["description"]["type"] == "string"
+
+        assert "project_dir" in params
+        assert params["project_dir"]["required"] is False
+        assert params["project_dir"]["default"] == "."
+
+    def test_list_template_params_not_found(self) -> None:
+        """list_template_params must return an error dict for unknown templates."""
+        result = list_template_params("nonexistent-template-xyz")
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    def test_template_without_param_defs_returns_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Templates without parameter_definitions must return an empty dict."""
+        user_dir = tmp_path / "templates"
+        tpl = {
+            "version": 1,
+            "goal": "Simple plan",
+            "variables": {"x": "default"},
+            "steps": [
+                {
+                    "id": "s1",
+                    "type": "task",
+                    "agent_type": "worker",
+                    "prompt": "Do {x}",
+                }
+            ],
+        }
+        _make_user_template(user_dir, "no-params-tpl", tpl)
+        monkeypatch.setattr("swarm.plan.templates.USER_TEMPLATES_DIR", user_dir)
+
+        result = list_template_params("no-params-tpl")
+        assert result["parameter_definitions"] == {}
+        assert result["variables"] == {"x": "default"}
+
+    def test_plan_template_list_tool_includes_new_fields(self) -> None:
+        """The MCP plan_template_list tool must include description, category, and parameter_definitions."""
+        result = json.loads(plan_template_list())
+        by_name = {t["name"]: t for t in result}
+
+        cr = by_name["code-review"]
+        assert cr["description"] == "Code review pipeline"
+        assert cr["category"] == "development"
+        assert isinstance(cr["parameter_definitions"], dict)
+        assert "description" in cr["parameter_definitions"]

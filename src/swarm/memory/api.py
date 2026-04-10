@@ -218,6 +218,58 @@ class MemoryAPI:
         )
         return [self._row_to_entry(r) for r in cur.fetchall()]
 
+    def recall_similar(
+        self,
+        agent_name: str,
+        query: str,
+        *,
+        limit: int = 10,
+        min_relevance: float = 0.0,
+        min_similarity: float = 0.1,
+    ) -> list[tuple[MemoryEntry, float]]:
+        """Recall memories using TF-IDF similarity search.
+
+        Provides semantic similarity ranking without external dependencies.
+        Falls back to keyword search if the similarity module is unavailable.
+
+        Args:
+            agent_name: Agent name to recall memories for.
+            query: Search query text.
+            limit: Maximum number of memories to return.
+            min_relevance: Minimum relevance_score threshold.
+            min_similarity: Minimum similarity score threshold (0.0-1.0).
+
+        Returns:
+            List of (MemoryEntry, similarity_score) tuples, ordered by
+            similarity descending.
+        """
+        from swarm.memory.similarity import similarity_search
+
+        # Fetch all candidate memories for this agent
+        conditions = ["agent_name = ?"]
+        params: list[object] = [agent_name]
+        if min_relevance > 0.0:
+            conditions.append("relevance_score >= ?")
+            params.append(min_relevance)
+
+        where = " AND ".join(conditions)
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM memory WHERE {where} "
+            "ORDER BY relevance_score DESC",
+            tuple(params),
+        )
+        entries = [self._row_to_entry(r) for r in cur.fetchall()]
+        if not entries:
+            return []
+
+        # Run similarity search
+        documents = [e.content for e in entries]
+        scored = similarity_search(
+            query, documents, top_k=limit, min_score=min_similarity,
+        )
+
+        return [(entries[idx], score) for idx, score in scored]
+
     def forget(self, memory_id: str) -> bool:
         """Delete a specific memory by ID.
 

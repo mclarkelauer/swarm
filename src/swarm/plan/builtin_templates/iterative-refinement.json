@@ -1,6 +1,22 @@
 {
   "version": 1,
   "goal": "Create high-quality {deliverable}",
+  "description": "Draft/critic/refine iteration cycle",
+  "category": "workflow",
+  "parameter_definitions": {
+    "deliverable": {
+      "description": "What to produce (e.g. 'design doc', 'API spec')",
+      "type": "string",
+      "required": true,
+      "default": ""
+    },
+    "context": {
+      "description": "Background context for the deliverable",
+      "type": "string",
+      "required": false,
+      "default": ""
+    }
+  },
   "variables": {"deliverable": "", "context": ""},
   "steps": [
     {

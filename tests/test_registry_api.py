@@ -378,6 +378,41 @@ class TestStatus:
         assert defn.status == "active"
 
 
+class TestVersion:
+    def test_create_default_version_is_one(self, api: RegistryAPI) -> None:
+        d = api.create("agent", "prompt", [], [])
+        assert d.version == 1
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.version == 1
+
+    def test_clone_increments_version(self, api: RegistryAPI) -> None:
+        original = api.create("agent", "prompt", [], [])
+        assert original.version == 1
+        clone = api.clone(original.id, {"name": "agent-v2"})
+        assert clone.version == 2
+        clone2 = api.clone(clone.id, {"name": "agent-v3"})
+        assert clone2.version == 3
+
+    def test_clone_version_override(self, api: RegistryAPI) -> None:
+        original = api.create("agent", "prompt", [], [])
+        clone = api.clone(original.id, {"name": "agent-v10", "version": 10})
+        assert clone.version == 10
+
+    def test_version_in_select_cols(self, api: RegistryAPI) -> None:
+        """Verify version survives a create -> get roundtrip through the DB."""
+        d = api.create("agent", "prompt", [], [], version=5)
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.version == 5
+        # Also verify to_dict / from_dict roundtrip
+        data = retrieved.to_dict()
+        assert data["version"] == 5
+        from swarm.registry.models import AgentDefinition
+        restored = AgentDefinition.from_dict(data)
+        assert restored.version == 5
+
+
 class TestInspect:
     def test_inspect_returns_details(self, api: RegistryAPI) -> None:
         d = api.create("test", "prompt", ["tool"], ["perm"])

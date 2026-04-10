@@ -29,6 +29,7 @@ class AgentDefinition:
     last_used: str = ""
     notes: str = ""
     status: str = "active"
+    version: int = 1
 
     @property
     def success_rate(self) -> float:
@@ -59,6 +60,7 @@ class AgentDefinition:
             "last_used": self.last_used,
             "notes": self.notes,
             "status": self.status,
+            "version": self.version,
             "success_rate": self.success_rate,
         }
 
@@ -82,4 +84,5 @@ class AgentDefinition:
             last_used=d.get("last_used", ""),
             notes=d.get("notes", ""),
             status=d.get("status", "active"),
+            version=d.get("version", 1),
         )

@@ -549,8 +549,13 @@ def plan_template_list() -> str:
     names collide.
 
     Returns:
-        JSON array of ``{name, goal, step_count, variables, source}`` objects,
-        where *source* is ``"builtin"`` or ``"user"``.
+        JSON array of ``{name, goal, step_count, variables, source,
+        description, category, parameter_definitions}`` objects, where
+        *source* is ``"builtin"`` or ``"user"``, *description* and
+        *category* are strings (empty when not set), and
+        *parameter_definitions* is a dict mapping variable names to
+        ``{description, type, required, default}`` objects (empty dict
+        when not defined).
     """
     return json.dumps(list_templates())
 
@@ -739,19 +744,32 @@ def plan_retrospective(run_log_path: str, plan_path: str = "") -> str:
 
     # 10. Compute cost summary from step outcomes
     total_tokens = sum(s.tokens_used for s in log.steps)
-    total_cost_usd = sum(s.cost_usd for s in log.steps)
+    total_cost = sum(s.cost_usd for s in log.steps)
+    cost_summary = {
+        "total_tokens": total_tokens,
+        "total_cost_usd": round(total_cost, 4),
+        "per_step": [
+            {
+                "step_id": s.step_id,
+                "tokens": s.tokens_used,
+                "cost_usd": s.cost_usd,
+                "model": s.model,
+            }
+            for s in log.steps
+            if s.tokens_used > 0
+        ],
+    }
 
     return json.dumps({
         "total_steps": total_steps,
         "completed": completed,
         "failed": failed,
         "skipped": skipped,
-        "total_tokens": total_tokens,
-        "total_cost_usd": total_cost_usd,
         "slowest_steps": slowest_steps,
         "failing_agents": failing_agents,
         "unused_artifacts": unused_artifacts,
         "suggestions": suggestions,
+        "cost_summary": cost_summary,
     })
 
 

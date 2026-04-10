@@ -8,17 +8,15 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
+from swarm.plan.events import EventLog, PlanEvent
 from swarm.plan.executor import (
     RunState,
     StepExecution,
+    _parse_cost_data,
     execute_foreground,
     execute_plan,
     finalize,
-    handle_checkpoint,
     handle_decision,
-    handle_join,
     init_run_state,
     record_failure,
     record_skip,
@@ -28,13 +26,10 @@ from swarm.plan.models import (
     CheckpointConfig,
     ConditionalAction,
     DecisionConfig,
-    LoopConfig,
     Plan,
     PlanStep,
-    RetryConfig,
 )
 from swarm.plan.run_log import RunLog, StepOutcome, load_run_log, write_run_log
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1231,3 +1226,198 @@ class TestParallelForegroundExecution:
 
         # Should pause at checkpoint
         assert result["status"] == "paused"
+
+
+# ---------------------------------------------------------------------------
+# _parse_cost_data
+# ---------------------------------------------------------------------------
+
+
+class TestParseCostData:
+    def test_parse_cost_data_from_json_stderr(self, tmp_path: Path) -> None:
+        """Parse token usage and model from JSON lines in stderr."""
+        stderr_content = (
+            'some log line\n'
+            '{"usage": {"input_tokens": 1000, "output_tokens": 500}, '
+            '"model": "claude-3-opus", "cost_usd": 0.045}\n'
+            'another log line\n'
+        )
+        stderr_path = tmp_path / "s1.stderr.log"
+        stderr_path.write_text(stderr_content, encoding="utf-8")
+
+        result = _parse_cost_data(tmp_path, "s1")
+
+        assert result["tokens_used"] == 1500
+        assert result["model"] == "claude-3-opus"
+        assert result["cost_usd"] == 0.045
+
+    def test_parse_cost_data_missing_file(self, tmp_path: Path) -> None:
+        """Return empty dict when stderr file does not exist."""
+        result = _parse_cost_data(tmp_path, "nonexistent")
+        assert result == {}
+
+    def test_parse_cost_data_empty_file(self, tmp_path: Path) -> None:
+        """Return empty dict when stderr file is empty."""
+        stderr_path = tmp_path / "s1.stderr.log"
+        stderr_path.write_text("", encoding="utf-8")
+
+        result = _parse_cost_data(tmp_path, "s1")
+        assert result == {}
+
+    def test_parse_cost_data_no_json_lines(self, tmp_path: Path) -> None:
+        """Return empty dict when stderr has no JSON lines."""
+        stderr_path = tmp_path / "s1.stderr.log"
+        stderr_path.write_text("just some log output\nno json here\n", encoding="utf-8")
+
+        result = _parse_cost_data(tmp_path, "s1")
+        assert result == {}
+
+    def test_parse_cost_data_partial_fields(self, tmp_path: Path) -> None:
+        """Parse only the fields present in the JSON."""
+        stderr_path = tmp_path / "s1.stderr.log"
+        stderr_path.write_text(
+            '{"model": "claude-3-sonnet"}\n',
+            encoding="utf-8",
+        )
+
+        result = _parse_cost_data(tmp_path, "s1")
+        assert result == {"model": "claude-3-sonnet"}
+        assert "tokens_used" not in result
+
+
+class TestRecordSuccessWithCostData:
+    def test_cost_data_recorded_in_outcome(self, tmp_path: Path) -> None:
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+
+        record_success(
+            rs, plan.steps[0], attempt=0,
+            tokens_used=2000, cost_usd=0.05, model="claude-3-opus",
+        )
+
+        assert rs.log.steps[0].tokens_used == 2000
+        assert rs.log.steps[0].cost_usd == 0.05
+        assert rs.log.steps[0].model == "claude-3-opus"
+
+    def test_cost_data_persisted_to_log(self, tmp_path: Path) -> None:
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+
+        record_success(
+            rs, plan.steps[0], attempt=0,
+            tokens_used=1500, cost_usd=0.03, model="claude-3",
+        )
+
+        loaded = load_run_log(rs.log_path)
+        assert loaded.steps[0].tokens_used == 1500
+        assert loaded.steps[0].cost_usd == 0.03
+        assert loaded.steps[0].model == "claude-3"
+
+
+class TestRecordFailureWithCostData:
+    def test_cost_data_recorded_in_failure(self, tmp_path: Path) -> None:
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+
+        record_failure(
+            rs, plan.steps[0], attempt=0,
+            message="boom", exit_code=1,
+            tokens_used=800, cost_usd=0.02, model="claude-3",
+        )
+
+        assert rs.log.steps[0].tokens_used == 800
+        assert rs.log.steps[0].cost_usd == 0.02
+        assert rs.log.steps[0].model == "claude-3"
+
+
+# ---------------------------------------------------------------------------
+# Event logging integration
+# ---------------------------------------------------------------------------
+
+
+def _make_run_state_with_events(
+    plan: Plan,
+    tmp_path: Path,
+) -> RunState:
+    """Create a RunState with an EventLog attached."""
+    rs = _make_run_state(plan, tmp_path)
+    event_log = EventLog(tmp_path / "events.ndjson")
+    rs.event_log = event_log
+    return rs
+
+
+class TestEventsEmittedOnSuccess:
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_events_emitted_on_success(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Successful foreground step emits step_started + step_completed."""
+        mock_launch.return_value = _mock_popen(0)
+        mock_wait.return_value = 0
+
+        step = PlanStep(id="s1", type="task", prompt="do it", agent_type="worker")
+        plan = _plan(step)
+        rs = _make_run_state_with_events(plan, tmp_path)
+
+        execute_foreground(rs, step)
+
+        assert rs.event_log is not None
+        events = rs.event_log.read_all()
+        event_types = [e["event_type"] for e in events]
+        assert "step_started" in event_types
+        assert "step_completed" in event_types
+
+        # Verify step_id is included
+        started = [e for e in events if e["event_type"] == "step_started"][0]
+        assert started["step_id"] == "s1"
+        assert started["agent_type"] == "worker"
+
+        completed = [e for e in events if e["event_type"] == "step_completed"][0]
+        assert completed["step_id"] == "s1"
+
+
+class TestEventsEmittedOnFailure:
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_events_emitted_on_failure(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Failed foreground step emits step_started + step_failed."""
+        mock_launch.return_value = _mock_popen(1)
+        mock_wait.return_value = 1
+
+        step = PlanStep(id="s1", type="task", prompt="do it", agent_type="worker")
+        plan = _plan(step)
+        rs = _make_run_state_with_events(plan, tmp_path)
+
+        execute_foreground(rs, step)
+
+        assert rs.event_log is not None
+        events = rs.event_log.read_all()
+        event_types = [e["event_type"] for e in events]
+        assert "step_started" in event_types
+        assert "step_failed" in event_types
+
+        failed = [e for e in events if e["event_type"] == "step_failed"][0]
+        assert failed["step_id"] == "s1"
+        assert "message" in failed
+
+
+class TestNoEventsWhenLogNone:
+    def test_no_events_when_log_none(self, tmp_path: Path) -> None:
+        """No crash when event_log is None (default)."""
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+        assert rs.event_log is None
+
+        # record_success/failure/skip should not crash
+        record_success(rs, plan.steps[0], attempt=0, message="done")
+        # The run state works fine without event logging
+        assert "s1" in rs.completed

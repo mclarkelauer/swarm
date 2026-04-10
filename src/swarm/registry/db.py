@@ -52,6 +52,7 @@ def init_registry_db(path: Path) -> tuple[sqlite3.Connection, bool]:
         ("last_used", "''"),
         ("notes", "''"),
         ("status", "'active'"),
+        ("version", "1"),
     ]:
         with contextlib.suppress(sqlite3.OperationalError):
             col_type = "INTEGER" if default == "0" else "TEXT"

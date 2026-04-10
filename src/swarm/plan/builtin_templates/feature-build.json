@@ -1,6 +1,22 @@
 {
   "version": 1,
   "goal": "Build feature: {description}",
+  "description": "Feature development workflow",
+  "category": "development",
+  "parameter_definitions": {
+    "description": {
+      "description": "Description of the feature to build",
+      "type": "string",
+      "required": true,
+      "default": ""
+    },
+    "project_dir": {
+      "description": "Path to the project directory",
+      "type": "string",
+      "required": false,
+      "default": "."
+    }
+  },
   "variables": {"description": "", "project_dir": "."},
   "steps": [
     {"id": "design", "type": "task", "agent_type": "architect", "prompt": "Design the implementation plan for: {description} in {project_dir}", "output_artifact": "design.md"},

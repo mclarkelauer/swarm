@@ -146,3 +146,37 @@ def memory_prune(
         min_relevance=float(min_relevance) if min_relevance else None,
     )
     return json.dumps({"decayed": decayed, "pruned": pruned})
+
+
+@mcp.tool()
+def memory_search_similar(
+    agent_name: str,
+    query: str,
+    limit: str = "10",
+    min_similarity: str = "0.1",
+) -> str:
+    """Search memories using TF-IDF semantic similarity.
+
+    Goes beyond keyword matching to find semantically related memories.
+    Uses lightweight TF-IDF cosine similarity (no external dependencies).
+
+    Args:
+        agent_name: The agent name.
+        query: Natural language search query.
+        limit: Maximum results (default 10).
+        min_similarity: Minimum similarity score 0.0-1.0 (default 0.1).
+
+    Returns:
+        JSON array of {memory, similarity_score} objects.
+    """
+    assert state.memory_api is not None
+    results = state.memory_api.recall_similar(
+        agent_name=agent_name,
+        query=query,
+        limit=int(limit),
+        min_similarity=float(min_similarity),
+    )
+    return json.dumps([
+        {"memory": e.to_dict(), "similarity_score": round(score, 4)}
+        for e, score in results
+    ])

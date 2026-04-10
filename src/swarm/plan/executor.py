@@ -7,6 +7,7 @@ completion by launching ``claude`` CLI subprocesses for each agent step.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import subprocess
@@ -25,6 +26,7 @@ from swarm.memory.api import MemoryAPI
 from swarm.memory.injection import format_memories_for_prompt
 from swarm.plan.conditions import evaluate_condition
 from swarm.plan.dag import get_ready_steps
+from swarm.plan.events import EventLog, PlanEvent
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.run_log import RunLog, StepOutcome, load_run_log, write_run_log
@@ -41,6 +43,17 @@ _BACKGROUND_POLL_SECONDS = 1.0
 
 def _iso_now() -> str:
     return datetime.now(tz=UTC).isoformat()
+
+
+# ---------------------------------------------------------------------------
+# Helper: emit event
+# ---------------------------------------------------------------------------
+
+def _emit(run_state: RunState, event: PlanEvent) -> None:
+    """Emit an event if event logging is enabled."""
+    if run_state.event_log is not None:
+        with contextlib.suppress(OSError):
+            run_state.event_log.emit(event)
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +171,9 @@ class RunState:
     # Optional memory API for automatic memory injection
     memory_api: MemoryAPI | None = None
 
+    # Optional event log for real-time progress tracking
+    event_log: EventLog | None = None
+
     # Maximum number of parallel foreground steps per wave (0 = serial)
     max_parallel: int = 0
 
@@ -264,6 +280,11 @@ def record_success(
         run_state.step_outcomes[step.id] = "completed"
         run_state.log.steps.append(outcome)
         write_run_log(run_state.log, run_state.log_path)
+    _emit(run_state, PlanEvent(
+        event_type="step_completed",
+        step_id=step.id,
+        agent_type=step.agent_type,
+    ))
     logger.info("step_completed", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -297,6 +318,12 @@ def record_failure(
         run_state.step_outcomes[step.id] = "failed"
         run_state.log.steps.append(outcome)
         write_run_log(run_state.log, run_state.log_path)
+    _emit(run_state, PlanEvent(
+        event_type="step_failed",
+        step_id=step.id,
+        agent_type=step.agent_type,
+        message=message,
+    ))
     logger.warning("step_failed", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -322,6 +349,10 @@ def record_skip(
         run_state.step_outcomes[step.id] = "skipped"
         run_state.log.steps.append(outcome)
         write_run_log(run_state.log, run_state.log_path)
+    _emit(run_state, PlanEvent(
+        event_type="step_skipped",
+        step_id=step.id,
+    ))
     logger.info("step_skipped", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -379,6 +410,11 @@ def _build_agent_system_prompt(
 
 def execute_foreground(run_state: RunState, step: PlanStep) -> None:
     """Execute a foreground step, handling retries and critic loops."""
+    _emit(run_state, PlanEvent(
+        event_type="step_started",
+        step_id=step.id,
+        agent_type=step.agent_type,
+    ))
     attempt = run_state.retry_counts.get(step.id, 0)
     retry_config = step.retry_config
     max_retries = retry_config.max_retries if retry_config else 0
@@ -703,6 +739,11 @@ def handle_checkpoint(run_state: RunState, step: PlanStep) -> None:
     run_state.log.status = "paused"
     write_run_log(run_state.log, run_state.log_path)
 
+    _emit(run_state, PlanEvent(
+        event_type="checkpoint_reached",
+        step_id=step.id,
+        message=message,
+    ))
     logger.info("checkpoint_reached", step_id=step.id, message=message)
 
 
@@ -1004,6 +1045,10 @@ def init_run_state(
 
 def finalize(run_state: RunState, status: str) -> dict[str, Any]:
     """Finalize a run, write the final log, and return a summary dict."""
+    _emit(run_state, PlanEvent(
+        event_type="run_completed",
+        message=status,
+    ))
     run_state.log.status = status
     run_state.log.finished_at = _iso_now()
 
@@ -1059,6 +1104,11 @@ def execute_plan(run_state: RunState, max_steps: int = 0) -> dict[str, Any]:
     """
     # Pre-flight: verify claude CLI is available
     find_claude_binary()
+
+    _emit(run_state, PlanEvent(
+        event_type="run_started",
+        message=run_state.plan.goal,
+    ))
 
     steps_executed = 0
     all_ids = {s.id for s in run_state.plan.steps}

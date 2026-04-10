@@ -11,7 +11,6 @@ from swarm.mcp import state
 from swarm.mcp.plan_tools import plan_retrospective
 from swarm.plan.run_log import RunLog, StepOutcome, write_run_log
 
-
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
 # ---------------------------------------------------------------------------
@@ -170,8 +169,11 @@ class TestPlanRetrospectiveHappyPath:
         required_keys = {
             "total_steps", "completed", "failed", "skipped",
             "slowest_steps", "failing_agents", "unused_artifacts", "suggestions",
+            "cost_summary",
         }
         assert required_keys.issubset(result.keys())
+        assert "total_tokens" in result["cost_summary"]
+        assert "total_cost_usd" in result["cost_summary"]
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +200,70 @@ class TestPlanRetrospectiveEmptyRunLog:
         assert result["slowest_steps"] == []
         assert result["failing_agents"] == []
         assert result["suggestions"] == []
+        assert result["cost_summary"]["total_tokens"] == 0
+        assert result["cost_summary"]["total_cost_usd"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Cost summary
+# ---------------------------------------------------------------------------
+
+
+class TestPlanRetrospectiveCostSummary:
+    def test_sums_tokens_and_cost_across_steps(self, tmp_path: Path) -> None:
+        plan_path = _write_plan(tmp_path, _basic_plan_data())
+        log = RunLog(
+            plan_path=str(plan_path),
+            plan_version=1,
+            started_at="2026-01-01T00:00:00",
+            steps=[
+                StepOutcome(
+                    step_id="s1", status="completed",
+                    started_at="2026-01-01T00:00:00", finished_at="2026-01-01T00:00:05",
+                    tokens_used=1000, cost_usd=0.01, model="claude-3",
+                ),
+                StepOutcome(
+                    step_id="s2", status="completed",
+                    started_at="2026-01-01T00:00:05", finished_at="2026-01-01T00:00:10",
+                    tokens_used=2000, cost_usd=0.02, model="claude-3",
+                ),
+                StepOutcome(
+                    step_id="s3", status="failed",
+                    started_at="2026-01-01T00:00:10", finished_at="2026-01-01T00:00:12",
+                    tokens_used=500, cost_usd=0.005,
+                ),
+            ],
+        )
+        log_path = _write_run_log(tmp_path, log)
+        result = json.loads(plan_retrospective(str(log_path)))
+
+        cost = result["cost_summary"]
+        assert cost["total_tokens"] == 3500
+        assert cost["total_cost_usd"] == pytest.approx(0.035)
+        # per_step only includes steps with tokens_used > 0
+        assert len(cost["per_step"]) == 3
+        assert cost["per_step"][0]["step_id"] == "s1"
+        assert cost["per_step"][0]["tokens"] == 1000
+        assert cost["per_step"][0]["model"] == "claude-3"
+
+    def test_zero_cost_when_no_tracking_data(self, tmp_path: Path) -> None:
+        plan_path = _write_plan(tmp_path, _basic_plan_data())
+        log = RunLog(
+            plan_path=str(plan_path),
+            plan_version=1,
+            started_at="2026-01-01T00:00:00",
+            steps=[
+                _make_outcome("s1", "completed"),
+                _make_outcome("s2", "completed"),
+            ],
+        )
+        log_path = _write_run_log(tmp_path, log)
+        result = json.loads(plan_retrospective(str(log_path)))
+
+        cost = result["cost_summary"]
+        assert cost["total_tokens"] == 0
+        assert cost["total_cost_usd"] == 0.0
+        assert cost["per_step"] == []
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from swarm.errors import PlanError
 from swarm.plan.models import Plan, PlanStep
@@ -32,6 +33,40 @@ def _load_template_from_path(path: Path) -> Plan:
     return Plan.from_dict(data)
 
 
+def _load_raw_template(path: Path) -> dict[str, Any]:
+    """Load raw JSON data from a template file."""
+    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def load_templates() -> dict[str, dict[str, Any]]:
+    """Load all templates as raw dicts, keyed by name.
+
+    User templates override builtin templates when names collide.
+
+    Returns:
+        Dict mapping template name to the raw JSON data (including
+        ``parameter_definitions``, ``category``, and ``description``
+        when present).
+    """
+    found: dict[str, dict[str, Any]] = {}
+
+    for _source, directory in (("builtin", BUILTIN_TEMPLATES_DIR), ("user", USER_TEMPLATES_DIR)):
+        if not directory.exists():
+            continue
+        for json_file in sorted(directory.glob("*.json")):
+            name = json_file.stem
+            try:
+                raw = _load_raw_template(json_file)
+                # Validate that it parses as a Plan (catches malformed templates).
+                Plan.from_dict(raw)
+            except (json.JSONDecodeError, KeyError, ValueError):
+                continue  # skip malformed templates silently
+            raw["_source"] = _source
+            found[name] = raw
+
+    return found
+
+
 def list_templates() -> list[dict[str, object]]:
     """Scan builtin and user template directories and return metadata.
 
@@ -39,34 +74,48 @@ def list_templates() -> list[dict[str, object]]:
 
     Returns:
         List of dicts with keys ``name``, ``goal``, ``step_count``,
-        ``variables``, and ``source`` (``"builtin"`` or ``"user"``).
+        ``variables``, ``source`` (``"builtin"`` or ``"user"``),
+        ``description``, ``category``, and ``parameter_definitions``.
     """
-    # Collect builtins first, then overlay user templates (user wins on collision).
-    found: dict[str, tuple[Plan, str]] = {}  # name -> (plan, source)
-
-    for source, directory in (("builtin", BUILTIN_TEMPLATES_DIR), ("user", USER_TEMPLATES_DIR)):
-        if not directory.exists():
-            continue
-        for json_file in sorted(directory.glob("*.json")):
-            name = json_file.stem
-            try:
-                plan = _load_template_from_path(json_file)
-            except (json.JSONDecodeError, KeyError, ValueError):
-                continue  # skip malformed templates silently
-            found[name] = (plan, source)
+    found = load_templates()
 
     result: list[dict[str, object]] = []
-    for name, (plan, source) in sorted(found.items()):
+    for name in sorted(found):
+        raw = found[name]
+        plan = Plan.from_dict(raw)
         result.append(
             {
                 "name": name,
                 "goal": plan.goal,
                 "step_count": len(plan.steps),
                 "variables": list(plan.variables.keys()),
-                "source": source,
+                "source": raw.get("_source", "builtin"),
+                "description": raw.get("description", ""),
+                "category": raw.get("category", ""),
+                "parameter_definitions": raw.get("parameter_definitions", {}),
             }
         )
     return result
+
+
+def list_template_params(name: str) -> dict[str, Any]:
+    """Get parameter definitions for a template.
+
+    Returns:
+        Dict with template name, description, category, and parameter_definitions.
+    """
+    templates = load_templates()
+    if name not in templates:
+        return {"error": f"Template '{name}' not found"}
+
+    tmpl = templates[name]
+    return {
+        "name": name,
+        "description": tmpl.get("description", ""),
+        "category": tmpl.get("category", ""),
+        "parameter_definitions": tmpl.get("parameter_definitions", {}),
+        "variables": tmpl.get("variables", {}),
+    }
 
 
 def load_template(name: str) -> Plan:

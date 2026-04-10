@@ -1,6 +1,22 @@
 {
   "version": 1,
   "goal": "Code review for {description}",
+  "description": "Code review pipeline",
+  "category": "development",
+  "parameter_definitions": {
+    "description": {
+      "description": "What to review (e.g. 'auth module', 'API endpoints')",
+      "type": "string",
+      "required": true,
+      "default": ""
+    },
+    "project_dir": {
+      "description": "Path to the project directory to review",
+      "type": "string",
+      "required": false,
+      "default": "."
+    }
+  },
   "variables": {"description": "", "project_dir": "."},
   "steps": [
     {"id": "analyze", "type": "task", "agent_type": "code-analyzer", "prompt": "Analyze the codebase at {project_dir} for: {description}. Identify key areas to review.", "output_artifact": "analysis.md"},

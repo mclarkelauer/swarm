@@ -287,3 +287,30 @@ def plan_run_cancel(run_log_path: str) -> str:
         "killed_pids": [],
         "status": "cancelled",
     })
+
+
+@mcp.tool()
+def plan_run_events(
+    event_log_path: str = "",
+    offset: str = "0",
+) -> str:
+    """Read real-time execution events from a plan run.
+
+    Returns events since the given byte offset for efficient polling.
+    Pass the returned offset in the next call to get only new events.
+
+    Args:
+        event_log_path: Path to the events.ndjson file.
+        offset: Byte offset to read from (0 = beginning).
+
+    Returns:
+        JSON object: {"events": [...], "offset": N}.
+    """
+    from swarm.plan.events import EventLog
+
+    path = Path(event_log_path)
+    if not path.exists():
+        return json.dumps({"events": [], "offset": 0})
+    log = EventLog(path)
+    events, new_offset = log.read_since(int(offset))
+    return json.dumps({"events": events, "offset": new_offset})
