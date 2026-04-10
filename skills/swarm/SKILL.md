@@ -6,7 +6,7 @@ user-invocable: true
 
 # Swarm - Multi-Agent Orchestration
 
-Swarm extends Claude Code with 45 MCP tools for multi-agent orchestration. Use this when you need to:
+Swarm extends Claude Code with 57 MCP tools for multi-agent orchestration. Use this when you need to:
 - Design and manage specialized agents
 - Build DAG-based execution plans
 - Execute complex multi-step workflows with subagents
@@ -276,16 +276,17 @@ Import from `.claude/agents/*.md`:
 forge_import_subagents(project_dir=".")
 ```
 
-## Tool Categories (45 tools)
+## Tool Categories (57 tools)
 
-- **Discovery (1)**: `swarm_discover`
-- **Forge (11)**: create, clone, get, list, suggest, suggest_ranked, remove, export_subagent, import_subagents, annotate_from_run
-- **Plan (14)**: create, validate, load, list, get_ready_steps, get_step, execute_step, validate_policies, amend, patch_step, template_list, template_instantiate, retrospective, visualize, replan
-- **Executor (4)**: plan_run, plan_run_status, plan_run_resume, plan_run_cancel
-- **Registry (5)**: list, inspect, search, search_ranked, remove
+- **Discovery (2)**: `swarm_discover`, `swarm_health`
+- **Forge (12)**: create, clone, get, list, suggest, suggest_ranked, remove, export_subagent, import_subagents, annotate_from_run, diff
+- **Plan (16)**: create, validate, load, list, get_ready_steps, get_step, execute_step, validate_policies, amend, patch_step, template_list, template_instantiate, retrospective, visualize, replan, remove_step
+- **Executor (6)**: plan_run, plan_run_status, plan_run_resume, plan_run_cancel, plan_run_events, plan_run_logs
+- **Registry (8)**: list, inspect, search, search_ranked, remove, update, record_metric, get_metrics
 - **Artifacts (3)**: declare, list, get
-- **Memory (4)**: store, recall, forget, prune
-- **Messaging (3)**: send_message, receive_messages, broadcast
+- **Memory (6)**: store, recall, forget, prune, reinforce, search_similar
+- **Messaging (6)**: send_message, receive_messages, broadcast, reply_message, acknowledge_message, get_thread
+- **Context (4)**: set, get, get_all, delete (run-scoped shared blackboard)
 
 ## Base Agent Catalog
 

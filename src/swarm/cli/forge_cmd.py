@@ -48,9 +48,10 @@ Code integration
 PERFORMANCE FEEDBACK:
 - forge_annotate_from_run — update usage_count, failure_count, and notes from \
 a completed run log
+- forge_diff — compare two agent definitions field-by-field
 
 REGISTRY (low-level):
-- registry_list, registry_inspect, registry_search, registry_remove
+- registry_list, registry_inspect, registry_search, registry_search_ranked, registry_remove, registry_update
 
 WORKFLOW:
 1. Use swarm_discover or forge_suggest_ranked to check for existing agents first

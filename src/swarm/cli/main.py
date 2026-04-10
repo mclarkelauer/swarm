@@ -105,12 +105,14 @@ MCP TOOLS:
 DISCOVER & SELECT AGENTS:
 - swarm_discover(query) — lightweight catalog: name+description+tags+usage stats. \
 Use this first.
+- swarm_health — system introspection: version, agent/memory counts, config
 - forge_suggest_ranked(query) — semantic ranking with LLM re-ranking prompt
 - forge_get(id_or_name) — full agent details when you need the complete definition
 
 CREATE & MANAGE AGENTS:
 - forge_create — include description, tags, and notes for discoverability
 - forge_clone — clone with overrides; clone preserves notes (lessons learned)
+- forge_diff — compare two agent definitions field-by-field
 - forge_export_subagent — export to .claude/agents/ for native Claude Code integration
 - forge_import_subagents — import from .claude/agents/ into Swarm registry
 - forge_annotate_from_run — update agents with performance data after a run
@@ -119,20 +121,41 @@ BUILD PLANS:
 - plan_template_list — check available templates before building from scratch
 - plan_template_instantiate — instantiate a template with variables
 - plan_create — build custom plans; use output_artifact, required_inputs, \
-on_failure, spawn_mode, condition
+on_failure, spawn_mode, condition, timeout
 - plan_validate — validate structure
 - plan_validate_policies — check tool policy compliance against registry
 - plan_amend — splice new steps into an existing plan mid-run
 - plan_patch_step — update a single step without changing DAG structure
+- plan_remove_step — remove a step and clean up depends_on references
 
 EXECUTE & MONITOR:
+- plan_run, plan_run_status, plan_run_resume, plan_run_cancel — autonomous execution
+- plan_run_events — tail real-time NDJSON execution events
+- plan_run_logs — list historical run log files
 - plan_execute_step — resolve agent + interpolate variables -> invocation payload
 - plan_get_ready_steps — DAG-ready steps with condition and artifact gating
 - artifact_declare, artifact_list, artifact_get — track and query step outputs
-- plan_retrospective — analyze completed runs for insights
+- plan_retrospective — analyze completed runs for insights (includes cost summary)
 
-REGISTRY (low-level):
-- registry_list, registry_inspect, registry_search, registry_remove
+REGISTRY:
+- registry_list, registry_inspect, registry_search, registry_search_ranked, registry_remove
+- registry_update — update agent metadata (description, tags, status) without cloning
+- registry_record_metric, registry_get_metrics — accumulated performance metrics
+
+MEMORY:
+- memory_store, memory_recall — store and retrieve agent memories (FTS5 search)
+- memory_reinforce — boost a memory's relevance when it proves useful
+- memory_search_similar — TF-IDF semantic similarity search
+- memory_forget, memory_prune — remove stale memories
+
+MESSAGING:
+- agent_send_message, agent_receive_messages, agent_broadcast — inter-agent comms
+- agent_reply_message — reply with correlation ID for request/response pairing
+- agent_acknowledge_message — mark messages as read
+- agent_get_thread — get full negotiation thread
+
+CONTEXT (shared blackboard):
+- context_set, context_get, context_get_all, context_delete — run-scoped key-value store
 
 BASE AGENT CATALOG:
 

@@ -17,7 +17,7 @@ swarm
 # Or use /swarm skill in any Claude Code session for guidance
 ```
 
-That's it. You're in a Claude Code session with 45 MCP tools for agent management, plan building, execution, memory, and messaging. Describe your goal and the orchestrator will:
+That's it. You're in a Claude Code session with 57 MCP tools for agent management, plan building, execution, memory, and messaging. Describe your goal and the orchestrator will:
 
 1. Discover existing agents and suggest matches (`swarm_discover`, `forge_suggest_ranked`)
 2. Create specialized agents with focused system prompts, descriptions, and tags
@@ -51,7 +51,7 @@ The skill provides:
 - 6 core workflow patterns (discover, create, build plans, execute, memory/messaging, feedback)
 - Advanced features (loops, decisions, critics, fan-out/join) with code examples
 - Best practices and troubleshooting
-- Full 45-tool reference guide
+- Full 57-tool reference guide
 
 ### Prerequisites
 
@@ -94,15 +94,16 @@ Once cloned, specialize the agent by refining the system prompt, adding domain-s
   v
 Claude Code (orchestrator)
   |
-  ├── Swarm MCP Server (45 tools)
-  |     ├── Discovery    — swarm_discover (lightweight catalog browsing)
-  |     ├── Forge (11)   — create, clone, export, import, suggest_ranked, annotate agents
-  |     ├── Plan (14)    — templates, create, amend, execute_step, replan, retrospective, visualize
-  |     ├── Executor (4) — plan_run, plan_run_status, plan_run_resume, plan_run_cancel
-  |     ├── Registry (5) — list, inspect, search (FTS5), search_ranked, remove
-  |     ├── Artifacts (3)— declare, list, get (with metadata)
-  |     ├── Memory (4)   — store, recall, forget, prune (time-based decay)
-  |     └── Messaging (3)— send, receive, broadcast (inter-agent communication)
+  ├── Swarm MCP Server (57 tools)
+  |     ├── Discovery (2)— swarm_discover, swarm_health
+  |     ├── Forge (12)   — create, clone, export, import, suggest_ranked, annotate, diff
+  |     ├── Plan (16)    — templates, create, amend, execute_step, replan, retrospective, visualize, remove_step
+  |     ├── Executor (6) — plan_run, plan_run_status, plan_run_resume, plan_run_cancel, plan_run_events, plan_run_logs
+  |     ├── Registry (8) — list, inspect, search (FTS5), search_ranked, remove, update, record_metric, get_metrics
+  |     ├── Artifacts (3)— declare, list, get
+  |     ├── Memory (6)   — store, recall, forget, prune, reinforce, search_similar
+  |     ├── Messaging (6)— send, receive, broadcast, reply, acknowledge, get_thread
+  |     └── Context (4)  — set, get, get_all, delete (run-scoped shared blackboard)
   |
   └── Subagents (spawned by Claude Code)
         ├── researcher    — with forge-defined system prompt + memory injection
@@ -164,7 +165,7 @@ swarm sync                          Import .swarm/agents/ into registry
 swarm mcp-config                    Print MCP server config for Claude Code
 ```
 
-## MCP Tools (45 total)
+## MCP Tools (57 total)
 
 ### Discover & Select Agents
 | Tool | Description |
@@ -174,6 +175,7 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `forge_suggest_ranked` | Semantic ranking with LLM re-ranking prompt |
 | `forge_get` | Full agent definition by ID or name |
 | `forge_list` | All definitions (system_prompt truncated to 80 chars) |
+| `swarm_health` | System health: version, agent/memory counts, config |
 
 ### Create & Manage Agents
 | Tool | Description |
@@ -184,6 +186,7 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `forge_export_subagent` | Export to `.claude/agents/<name>.md` (Claude Code native format) |
 | `forge_import_subagents` | Import `.claude/agents/*.md` into Swarm registry |
 | `forge_annotate_from_run` | Update agents with performance data from a run log |
+| `forge_diff` | Compare two agent definitions field-by-field |
 
 ### Build & Modify Plans
 | Tool | Description |
@@ -197,6 +200,9 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `plan_patch_step` | Update a single step without changing DAG structure |
 | `plan_load` | Load a plan from disk |
 | `plan_list` | List plan versions in a directory |
+| `plan_remove_step` | Remove a step and clean depends_on references |
+| `plan_visualize` | Render plan DAG as Mermaid or ASCII |
+| `plan_replan` | Dynamic replanning during execution |
 
 ### Execute & Monitor
 | Tool | Description |
@@ -217,6 +223,9 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `registry_search` | FTS5 full-text search by name, description, or tags |
 | `registry_search_ranked` | Semantic ranking with LLM re-ranking prompt |
 | `registry_remove` | Remove an agent |
+| `registry_update` | Update agent metadata without cloning |
+| `registry_record_metric` | Record performance metric for an agent |
+| `registry_get_metrics` | Get accumulated performance metrics |
 
 ### Execution
 | Tool | Description |
@@ -225,6 +234,8 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `plan_run_status` | Get current run status and progress |
 | `plan_run_resume` | Resume a crashed/interrupted run from checkpoint |
 | `plan_run_cancel` | Cancel a running plan execution |
+| `plan_run_events` | Tail real-time NDJSON execution events |
+| `plan_run_logs` | List historical run log files |
 
 ### Memory
 | Tool | Description |
@@ -233,6 +244,8 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `memory_recall` | Recall memories with FTS5 search and time-based decay |
 | `memory_forget` | Remove specific memories |
 | `memory_prune` | Prune low-relevance memories (threshold 0.1) |
+| `memory_reinforce` | Boost a memory's relevance score |
+| `memory_search_similar` | TF-IDF semantic similarity search |
 
 ### Messaging
 | Tool | Description |
@@ -240,6 +253,17 @@ swarm mcp-config                    Print MCP server config for Claude Code
 | `agent_send_message` | Send a message to a specific agent |
 | `agent_receive_messages` | Receive messages for the current agent |
 | `agent_broadcast` | Broadcast a message to all agents in the run |
+| `agent_reply_message` | Reply with correlation ID |
+| `agent_acknowledge_message` | Mark a message as read |
+| `agent_get_thread` | Get full negotiation thread |
+
+### Context (Shared Blackboard)
+| Tool | Description |
+|------|-------------|
+| `context_set` | Set a key-value pair in the run's shared context |
+| `context_get` | Get a value from the run's shared context |
+| `context_get_all` | Get all key-value pairs for a run |
+| `context_delete` | Delete a key from the shared context |
 
 ## Plan Format
 
@@ -277,6 +301,7 @@ Plans are JSON files defining a DAG of steps:
 | `decision` | Inline evaluation that activates/skips downstream branches via conditional actions. |
 | `fan_out` | Spawn multiple agents in parallel (requires `fan_out_config`). |
 | `join` | Collect results from parallel branches. |
+| `subplan` | Execute a nested sub-plan (requires `subplan_path`). |
 
 ### Step Fields
 
@@ -294,6 +319,8 @@ Plans are JSON files defining a DAG of steps:
 | `message_to` | Target agent name for message routing |
 | `decision_config` | Conditional actions for decision steps (activate/skip branches) |
 | `loop_config` | Loop configuration: `condition`, `max_iterations` |
+| `timeout` | Per-step timeout in seconds (0 = no timeout) |
+| `subplan_path` | Path to sub-plan JSON file (for subplan steps) |
 
 ### Built-in Templates
 
@@ -319,6 +346,9 @@ Agents are stored in a SQLite registry with these fields:
 | `usage_count` | Total times used across runs |
 | `failure_count` | Total failures across runs |
 | `parent_id` | Provenance — which agent this was cloned from |
+| `status` | Lifecycle state: active, draft, deprecated, archived |
+| `version` | Auto-incrementing version number (increments on clone) |
+| `success_rate` | Computed: 1.0 - (failure_count / usage_count) |
 
 Agents can also be exported to Claude Code's native `.claude/agents/<name>.md` format via `forge_export_subagent`, and imported back via `forge_import_subagents`.
 
@@ -352,7 +382,7 @@ Agents can also be exported to Claude Code's native `.claude/agents/<name>.md` f
 
 ```bash
 uv sync                          # Install dependencies
-uv run pytest tests/ -v          # Run tests (1,272 tests)
+uv run pytest tests/ -v          # Run tests (1,473 tests)
 uv run pytest tests/ --cov=src   # Run tests with coverage
 uv run ruff check src/           # Lint
 uv run mypy src/                 # Type check (strict mode)
