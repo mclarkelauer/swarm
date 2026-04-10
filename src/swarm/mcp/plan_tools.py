@@ -737,11 +737,17 @@ def plan_retrospective(run_log_path: str, plan_path: str = "") -> str:
             f"Artifact '{ua['path']}' (from step '{step_src}') has no downstream consumer."
         )
 
+    # 10. Compute cost summary from step outcomes
+    total_tokens = sum(s.tokens_used for s in log.steps)
+    total_cost_usd = sum(s.cost_usd for s in log.steps)
+
     return json.dumps({
         "total_steps": total_steps,
         "completed": completed,
         "failed": failed,
         "skipped": skipped,
+        "total_tokens": total_tokens,
+        "total_cost_usd": total_cost_usd,
         "slowest_steps": slowest_steps,
         "failing_agents": failing_agents,
         "unused_artifacts": unused_artifacts,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ class MessageAPI:
 
     _SELECT_COLS = (
         "id, from_agent, to_agent, step_id, run_id, "
-        "content, message_type, created_at"
+        "content, message_type, created_at, in_reply_to, read_at"
     )
 
     @staticmethod
@@ -40,6 +41,8 @@ class MessageAPI:
             content=str(row[5]),
             message_type=str(row[6]),
             created_at=str(row[7]),
+            in_reply_to=str(row[8]),
+            read_at=str(row[9]),
         )
 
     # ------------------------------------------------------------------
@@ -80,8 +83,9 @@ class MessageAPI:
         self._conn.execute(
             """
             INSERT INTO messages (id, from_agent, to_agent, step_id, run_id,
-                                  content, message_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                  content, message_type, created_at,
+                                  in_reply_to, read_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 msg.id,
@@ -92,6 +96,8 @@ class MessageAPI:
                 msg.content,
                 msg.message_type,
                 msg.created_at,
+                msg.in_reply_to,
+                msg.read_at,
             ),
         )
         self._conn.commit()
@@ -215,6 +221,107 @@ class MessageAPI:
                 (step_id,),
             ).fetchall()
         return [self._row_to_message(r) for r in rows]
+
+    def get_message(self, message_id: str) -> AgentMessage | None:
+        """Get a single message by ID.
+
+        Args:
+            message_id: The message UUID.
+
+        Returns:
+            The message, or None if not found.
+        """
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM messages WHERE id = ?",
+            (message_id,),
+        )
+        row = cur.fetchone()
+        return self._row_to_message(row) if row else None
+
+    def reply(
+        self,
+        original_message_id: str,
+        from_agent: str,
+        content: str,
+        *,
+        run_id: str = "",
+    ) -> AgentMessage:
+        """Send a reply to a message, setting in_reply_to for correlation.
+
+        Args:
+            original_message_id: ID of the message being replied to.
+            from_agent: Name of the replying agent.
+            content: Reply content.
+            run_id: Plan run identifier.
+
+        Returns:
+            The created reply message.
+        """
+        # Look up original to get sender as recipient
+        original = self.get_message(original_message_id)
+        to_agent = original.from_agent if original else ""
+
+        msg = AgentMessage(
+            id=str(uuid.uuid4()),
+            from_agent=from_agent,
+            to_agent=to_agent,
+            content=content,
+            message_type="response",
+            run_id=run_id,
+            created_at=datetime.now(tz=UTC).isoformat(),
+            in_reply_to=original_message_id,
+        )
+        self._conn.execute(
+            "INSERT INTO messages (id, from_agent, to_agent, content, "
+            "message_type, run_id, created_at, in_reply_to, read_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                msg.id,
+                msg.from_agent,
+                msg.to_agent,
+                msg.content,
+                msg.message_type,
+                msg.run_id,
+                msg.created_at,
+                msg.in_reply_to,
+                msg.read_at,
+            ),
+        )
+        self._conn.commit()
+        return msg
+
+    def acknowledge(self, message_id: str) -> bool:
+        """Mark a message as read/acknowledged.
+
+        Args:
+            message_id: The message UUID to acknowledge.
+
+        Returns:
+            True if the message was found and acknowledged.
+        """
+        now = datetime.now(tz=UTC).isoformat()
+        cur = self._conn.execute(
+            "UPDATE messages SET read_at = ? WHERE id = ? AND read_at = ''",
+            (now, message_id),
+        )
+        self._conn.commit()
+        return cur.rowcount > 0
+
+    def get_replies(self, message_id: str) -> list[AgentMessage]:
+        """Get all replies to a specific message.
+
+        Args:
+            message_id: The original message ID.
+
+        Returns:
+            List of reply messages, ordered chronologically.
+        """
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM messages "
+            "WHERE in_reply_to = ? ORDER BY created_at",
+            (message_id,),
+        )
+        return [self._row_to_message(r) for r in cur.fetchall()]
 
     def close(self) -> None:
         """Close the database connection."""

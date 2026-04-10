@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from pathlib import Path
 
@@ -41,6 +42,12 @@ def init_message_db(path: Path) -> sqlite3.Connection:
             ON messages(run_id, step_id);
         """
     )
+    # Idempotent migrations for new columns.
+    for col in ("in_reply_to", "read_at"):
+        with contextlib.suppress(sqlite3.OperationalError):
+            conn.execute(
+                f"ALTER TABLE messages ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
+            )
     conn.commit()
 
     return conn

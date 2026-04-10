@@ -105,6 +105,69 @@ class TestRunLogReplanCount:
         assert loaded.replan_count == 5
 
 
+class TestStepOutcomeCostFields:
+    def test_default_cost_fields_omitted_from_dict(self) -> None:
+        o = StepOutcome(
+            step_id="s1", status="completed",
+            started_at="t0", finished_at="t1",
+        )
+        d = o.to_dict()
+        assert "tokens_used" not in d
+        assert "cost_usd" not in d
+        assert "model" not in d
+
+    def test_nonzero_cost_fields_included_in_dict(self) -> None:
+        o = StepOutcome(
+            step_id="s1", status="completed",
+            started_at="t0", finished_at="t1",
+            tokens_used=1500, cost_usd=0.003, model="claude-3",
+        )
+        d = o.to_dict()
+        assert d["tokens_used"] == 1500
+        assert d["cost_usd"] == 0.003
+        assert d["model"] == "claude-3"
+
+    def test_roundtrip_preserves_cost_fields(self) -> None:
+        o = StepOutcome(
+            step_id="s1", status="completed",
+            started_at="t0", finished_at="t1",
+            tokens_used=2000, cost_usd=0.05, model="claude-3-opus",
+        )
+        restored = StepOutcome.from_dict(o.to_dict())
+        assert restored.tokens_used == 2000
+        assert restored.cost_usd == 0.05
+        assert restored.model == "claude-3-opus"
+        assert restored == o
+
+    def test_from_dict_without_cost_fields_defaults(self) -> None:
+        d = {
+            "step_id": "s1", "status": "completed",
+            "started_at": "t0", "finished_at": "t1",
+        }
+        o = StepOutcome.from_dict(d)
+        assert o.tokens_used == 0
+        assert o.cost_usd == 0.0
+        assert o.model == ""
+
+    def test_cost_fields_persist_through_write_load(self, tmp_path: Path) -> None:
+        log = RunLog(
+            plan_path="p.json", plan_version=1, started_at="t0",
+            steps=[
+                StepOutcome(
+                    step_id="s1", status="completed",
+                    started_at="t0", finished_at="t1",
+                    tokens_used=500, cost_usd=0.01, model="claude-3",
+                ),
+            ],
+        )
+        path = tmp_path / "run_log.json"
+        write_run_log(log, path)
+        loaded = load_run_log(path)
+        assert loaded.steps[0].tokens_used == 500
+        assert loaded.steps[0].cost_usd == 0.01
+        assert loaded.steps[0].model == "claude-3"
+
+
 class TestAppendStepOutcome:
     def test_appends_and_persists(self, tmp_path: Path) -> None:
         log = RunLog(plan_path="p.json", plan_version=1, started_at="t0")

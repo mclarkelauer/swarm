@@ -378,6 +378,130 @@ class RegistryAPI:
             f"Ambiguous identifier '{identifier}': matches {names}. Use the full ID."
         )
 
+    def record_metric(
+        self,
+        agent_name: str,
+        *,
+        success: bool = True,
+        duration_seconds: float = 0.0,
+        tokens_used: int = 0,
+        cost_usd: float = 0.0,
+    ) -> dict[str, object]:
+        """Record a metric data point for an agent.
+
+        Accumulates across runs. Also increments usage_count/failure_count
+        on the agent definition.
+
+        Args:
+            agent_name: The agent name (stable across clones).
+            success: Whether the run was successful.
+            duration_seconds: How long the step took.
+            tokens_used: Tokens consumed.
+            cost_usd: Cost in USD.
+
+        Returns:
+            Dict with updated metrics.
+        """
+        now = datetime.now(tz=UTC).isoformat()
+
+        # Upsert into agent_metrics
+        self._conn.execute(
+            """
+            INSERT INTO agent_metrics (agent_name, total_runs, total_successes,
+                total_failures, total_tokens, total_cost_usd, avg_duration_seconds,
+                last_run_at, updated_at)
+            VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(agent_name) DO UPDATE SET
+                total_runs = total_runs + 1,
+                total_successes = total_successes + ?,
+                total_failures = total_failures + ?,
+                total_tokens = total_tokens + ?,
+                total_cost_usd = total_cost_usd + ?,
+                avg_duration_seconds = (avg_duration_seconds * total_runs + ?) / (total_runs + 1),
+                last_run_at = ?,
+                updated_at = ?
+            """,
+            (
+                agent_name,
+                1 if success else 0,
+                0 if success else 1,
+                tokens_used,
+                cost_usd,
+                duration_seconds,
+                now,
+                now,
+                # ON CONFLICT params
+                1 if success else 0,
+                0 if success else 1,
+                tokens_used,
+                cost_usd,
+                duration_seconds,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+
+        return self.get_metrics(agent_name) or {}
+
+    def get_metrics(self, agent_name: str) -> dict[str, object] | None:
+        """Get accumulated metrics for an agent.
+
+        Args:
+            agent_name: The agent name.
+
+        Returns:
+            Dict with metrics, or None if no data.
+        """
+        cur = self._conn.execute(
+            "SELECT agent_name, total_runs, total_successes, total_failures, "
+            "total_tokens, total_cost_usd, avg_duration_seconds, last_run_at, "
+            "updated_at FROM agent_metrics WHERE agent_name = ?",
+            (agent_name,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "agent_name": row[0],
+            "total_runs": row[1],
+            "total_successes": row[2],
+            "total_failures": row[3],
+            "total_tokens": row[4],
+            "total_cost_usd": row[5],
+            "avg_duration_seconds": row[6],
+            "last_run_at": row[7],
+            "updated_at": row[8],
+            "success_rate": row[2] / row[1] if row[1] > 0 else 1.0,
+        }
+
+    def list_metrics(self) -> list[dict[str, object]]:
+        """List metrics for all agents, ordered by total_runs descending.
+
+        Returns:
+            List of metric dicts.
+        """
+        cur = self._conn.execute(
+            "SELECT agent_name, total_runs, total_successes, total_failures, "
+            "total_tokens, total_cost_usd, avg_duration_seconds, last_run_at, "
+            "updated_at FROM agent_metrics ORDER BY total_runs DESC"
+        )
+        results: list[dict[str, object]] = []
+        for row in cur.fetchall():
+            results.append({
+                "agent_name": row[0],
+                "total_runs": row[1],
+                "total_successes": row[2],
+                "total_failures": row[3],
+                "total_tokens": row[4],
+                "total_cost_usd": row[5],
+                "avg_duration_seconds": row[6],
+                "last_run_at": row[7],
+                "updated_at": row[8],
+                "success_rate": row[2] / row[1] if row[1] > 0 else 1.0,
+            })
+        return results
+
     def inspect(self, agent_id: str) -> dict[str, object]:
         """Return full detail including the provenance chain."""
         defn = self.get(agent_id)

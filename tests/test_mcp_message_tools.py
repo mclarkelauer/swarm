@@ -9,8 +9,10 @@ import pytest
 
 from swarm.mcp import state
 from swarm.mcp.message_tools import (
+    agent_acknowledge_message,
     agent_broadcast,
     agent_receive_messages,
+    agent_reply_message,
     agent_send_message,
 )
 from swarm.messaging.api import MessageAPI
@@ -134,6 +136,61 @@ class TestAgentBroadcast:
         r2 = json.loads(agent_receive_messages("agent-b", "r1"))
         assert len(r1) == 1
         assert len(r2) == 1
+
+
+class TestAgentReplyMessage:
+    def test_agent_reply_message_tool(self) -> None:
+        # Send an original message
+        send_result = json.loads(
+            agent_send_message("alice", "bob", "question?", run_id="r1",
+                               message_type="request")
+        )
+        original_id = send_result["message"]["id"]
+
+        # Reply to it
+        reply_result = json.loads(
+            agent_reply_message(original_id, "bob", "answer!", run_id="r1")
+        )
+        assert reply_result["from_agent"] == "bob"
+        assert reply_result["to_agent"] == "alice"
+        assert reply_result["content"] == "answer!"
+        assert reply_result["in_reply_to"] == original_id
+
+    def test_reply_sets_response_type(self) -> None:
+        send_result = json.loads(
+            agent_send_message("alice", "bob", "ping", run_id="r1")
+        )
+        original_id = send_result["message"]["id"]
+        reply_result = json.loads(
+            agent_reply_message(original_id, "bob", "pong", run_id="r1")
+        )
+        # "response" is default, so omitted in sparse serialization
+        assert reply_result.get("message_type", "response") == "response"
+
+
+class TestAgentAcknowledgeMessage:
+    def test_agent_acknowledge_message_tool(self) -> None:
+        send_result = json.loads(
+            agent_send_message("alice", "bob", "read me", run_id="r1")
+        )
+        msg_id = send_result["message"]["id"]
+        ack_result = json.loads(agent_acknowledge_message(msg_id))
+        assert ack_result["ok"] is True
+        assert ack_result["message_id"] == msg_id
+
+    def test_acknowledge_nonexistent(self) -> None:
+        ack_result = json.loads(agent_acknowledge_message("fake-id"))
+        assert ack_result["ok"] is False
+
+    def test_double_acknowledge(self) -> None:
+        send_result = json.loads(
+            agent_send_message("alice", "bob", "read me", run_id="r1")
+        )
+        msg_id = send_result["message"]["id"]
+        first = json.loads(agent_acknowledge_message(msg_id))
+        assert first["ok"] is True
+        second = json.loads(agent_acknowledge_message(msg_id))
+        assert second["ok"] is False
 
 
 class TestRoundTrip:

@@ -20,6 +20,9 @@ class StepOutcome:
     message: str = ""
     attempt: int = 0
     exit_code: int | None = None
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+    model: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -33,6 +36,12 @@ class StepOutcome:
             d["attempt"] = self.attempt
         if self.exit_code is not None:
             d["exit_code"] = self.exit_code
+        if self.tokens_used > 0:
+            d["tokens_used"] = self.tokens_used
+        if self.cost_usd > 0.0:
+            d["cost_usd"] = self.cost_usd
+        if self.model:
+            d["model"] = self.model
         return d
 
     @classmethod
@@ -45,6 +54,9 @@ class StepOutcome:
             message=d.get("message", ""),
             attempt=d.get("attempt", 0),
             exit_code=d.get("exit_code"),
+            tokens_used=d.get("tokens_used", 0),
+            cost_usd=d.get("cost_usd", 0.0),
+            model=d.get("model", ""),
         )
 
 

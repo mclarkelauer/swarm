@@ -21,6 +21,8 @@ class AgentMessage:
     content: str = ""
     message_type: str = "response"
     created_at: str = ""
+    in_reply_to: str = ""
+    read_at: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Sparse serialization -- omit fields at their default value."""
@@ -39,6 +41,10 @@ class AgentMessage:
             d["message_type"] = self.message_type
         if self.created_at:
             d["created_at"] = self.created_at
+        if self.in_reply_to:
+            d["in_reply_to"] = self.in_reply_to
+        if self.read_at:
+            d["read_at"] = self.read_at
         return d
 
     @classmethod
@@ -53,6 +59,8 @@ class AgentMessage:
             content=d.get("content", ""),
             message_type=d.get("message_type", "response"),
             created_at=d.get("created_at", ""),
+            in_reply_to=d.get("in_reply_to", ""),
+            read_at=d.get("read_at", ""),
         )
 
     @classmethod
@@ -65,6 +73,8 @@ class AgentMessage:
         step_id: str = "",
         run_id: str = "",
         created_at: str = "",
+        in_reply_to: str = "",
+        read_at: str = "",
     ) -> AgentMessage:
         """Factory that auto-generates the UUID."""
         return cls(
@@ -76,4 +86,6 @@ class AgentMessage:
             content=content,
             message_type=message_type,
             created_at=created_at,
+            in_reply_to=in_reply_to,
+            read_at=read_at,
         )

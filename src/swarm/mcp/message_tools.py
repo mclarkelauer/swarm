@@ -135,3 +135,43 @@ def agent_broadcast(
         run_id=run_id,
     )
     return json.dumps({"ok": True, "message": msg.to_dict()})
+
+
+@mcp.tool()
+def agent_reply_message(
+    original_message_id: str,
+    from_agent: str,
+    content: str,
+    run_id: str = "",
+) -> str:
+    """Reply to a message, automatically setting correlation ID.
+
+    Args:
+        original_message_id: ID of the message being replied to.
+        from_agent: Name of the replying agent.
+        content: Reply content.
+        run_id: Plan run identifier.
+
+    Returns:
+        JSON object with the reply message.
+    """
+    api = _get_message_api()
+    msg = api.reply(
+        original_message_id, from_agent, content, run_id=run_id,
+    )
+    return json.dumps(msg.to_dict())
+
+
+@mcp.tool()
+def agent_acknowledge_message(message_id: str) -> str:
+    """Mark a message as read/acknowledged.
+
+    Args:
+        message_id: The message UUID to acknowledge.
+
+    Returns:
+        JSON object: {"ok": true/false, "message_id": "..."}.
+    """
+    api = _get_message_api()
+    acked = api.acknowledge(message_id)
+    return json.dumps({"ok": acked, "message_id": message_id})

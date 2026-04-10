@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,6 +61,9 @@ class StepExecution:
     output_artifact: str = ""
     is_critic: bool = False  # True when this is a critic review pass
     critic_iteration: int = 0
+    tokens_used: int = 0
+    cost_usd: float = 0.0
+    model: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -77,6 +82,12 @@ class StepExecution:
         if self.is_critic:
             d["is_critic"] = True
             d["critic_iteration"] = self.critic_iteration
+        if self.tokens_used > 0:
+            d["tokens_used"] = self.tokens_used
+        if self.cost_usd > 0.0:
+            d["cost_usd"] = self.cost_usd
+        if self.model:
+            d["model"] = self.model
         return d
 
     @classmethod
@@ -92,6 +103,9 @@ class StepExecution:
             output_artifact=d.get("output_artifact", ""),
             is_critic=d.get("is_critic", False),
             critic_iteration=d.get("critic_iteration", 0),
+            tokens_used=d.get("tokens_used", 0),
+            cost_usd=d.get("cost_usd", 0.0),
+            model=d.get("model", ""),
         )
 
 
@@ -144,6 +158,58 @@ class RunState:
     # Optional memory API for automatic memory injection
     memory_api: MemoryAPI | None = None
 
+    # Maximum number of parallel foreground steps per wave (0 = serial)
+    max_parallel: int = 0
+
+    # Thread-safety lock for concurrent log writes during parallel execution
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+
+# ---------------------------------------------------------------------------
+# Helper: parse cost data from stderr
+# ---------------------------------------------------------------------------
+
+
+def _parse_cost_data(artifacts_dir: Path, step_id: str) -> dict[str, Any]:
+    """Parse token usage from claude CLI stderr output.
+
+    The claude CLI outputs usage data to stderr.  We look for JSON-formatted
+    usage data or known patterns.
+
+    Returns dict with tokens_used, cost_usd, model (all optional).
+    """
+    stderr_path = artifacts_dir / f"{step_id}.stderr.log"
+    if not stderr_path.exists():
+        return {}
+
+    try:
+        content = stderr_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+
+    result: dict[str, Any] = {}
+
+    # Try to find JSON usage data in stderr
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+            if "usage" in data:
+                usage = data["usage"]
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                result["tokens_used"] = input_tokens + output_tokens
+            if "model" in data:
+                result["model"] = data["model"]
+            if "cost_usd" in data:
+                result["cost_usd"] = float(data["cost_usd"])
+        except (json.JSONDecodeError, ValueError, TypeError):
+            continue
+
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Helpers: find step, safe interpolation
@@ -175,6 +241,9 @@ def record_success(
     attempt: int,
     message: str = "",
     started_at: str = "",
+    tokens_used: int = 0,
+    cost_usd: float = 0.0,
+    model: str = "",
 ) -> None:
     """Record a successful step execution."""
     now = _iso_now()
@@ -186,11 +255,15 @@ def record_success(
         message=message,
         attempt=attempt,
         exit_code=0,
+        tokens_used=tokens_used,
+        cost_usd=cost_usd,
+        model=model,
     )
-    run_state.completed.add(step.id)
-    run_state.step_outcomes[step.id] = "completed"
-    run_state.log.steps.append(outcome)
-    write_run_log(run_state.log, run_state.log_path)
+    with run_state._lock:
+        run_state.completed.add(step.id)
+        run_state.step_outcomes[step.id] = "completed"
+        run_state.log.steps.append(outcome)
+        write_run_log(run_state.log, run_state.log_path)
     logger.info("step_completed", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -201,6 +274,9 @@ def record_failure(
     message: str = "",
     exit_code: int | None = None,
     started_at: str = "",
+    tokens_used: int = 0,
+    cost_usd: float = 0.0,
+    model: str = "",
 ) -> None:
     """Record a failed step execution."""
     now = _iso_now()
@@ -212,11 +288,15 @@ def record_failure(
         message=message,
         attempt=attempt,
         exit_code=exit_code,
+        tokens_used=tokens_used,
+        cost_usd=cost_usd,
+        model=model,
     )
-    run_state.failed.add(step.id)
-    run_state.step_outcomes[step.id] = "failed"
-    run_state.log.steps.append(outcome)
-    write_run_log(run_state.log, run_state.log_path)
+    with run_state._lock:
+        run_state.failed.add(step.id)
+        run_state.step_outcomes[step.id] = "failed"
+        run_state.log.steps.append(outcome)
+        write_run_log(run_state.log, run_state.log_path)
     logger.warning("step_failed", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -237,10 +317,11 @@ def record_skip(
         message=message,
         attempt=attempt,
     )
-    run_state.skipped.add(step.id)
-    run_state.step_outcomes[step.id] = "skipped"
-    run_state.log.steps.append(outcome)
-    write_run_log(run_state.log, run_state.log_path)
+    with run_state._lock:
+        run_state.skipped.add(step.id)
+        run_state.step_outcomes[step.id] = "skipped"
+        run_state.log.steps.append(outcome)
+        write_run_log(run_state.log, run_state.log_path)
     logger.info("step_skipped", step_id=step.id, attempt=attempt, message=message)
 
 
@@ -317,6 +398,7 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
         )
 
         exit_code = wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None)
+        cost_data = _parse_cost_data(run_state.artifacts_dir, step.id)
 
         if exit_code == 0:
             # Check if critic loop is needed
@@ -338,11 +420,17 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
                             message=f"Critic rejected: {critic_result.feedback}",
                             exit_code=exit_code,
                             started_at=step_started_at,
+                            tokens_used=cost_data.get("tokens_used", 0),
+                            cost_usd=cost_data.get("cost_usd", 0.0),
+                            model=cost_data.get("model", ""),
                         )
                         return
 
             record_success(
                 run_state, step, attempt, started_at=step_started_at,
+                tokens_used=cost_data.get("tokens_used", 0),
+                cost_usd=cost_data.get("cost_usd", 0.0),
+                model=cost_data.get("model", ""),
             )
             return
 
@@ -377,6 +465,9 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
                 message=f"Failed with exit code {exit_code}",
                 exit_code=exit_code,
                 started_at=step_started_at,
+                tokens_used=cost_data.get("tokens_used", 0),
+                cost_usd=cost_data.get("cost_usd", 0.0),
+                model=cost_data.get("model", ""),
             )
             return
 
@@ -1014,13 +1105,23 @@ def execute_plan(run_state: RunState, max_steps: int = 0) -> dict[str, Any]:
             time.sleep(_BACKGROUND_POLL_SECONDS)
             continue
 
-        # 6. Process each ready step
+        # 6. Separate ready steps into foreground tasks eligible for
+        #    parallel execution and steps that must run serially
+        #    (checkpoints, loops, fan-outs, decisions, background tasks).
+        parallel_fg: list[PlanStep] = []
+        serial_steps: list[PlanStep] = []
+
         for step in ready:
-            # 6a. Check max_steps limit
+            if step.type == "task" and step.spawn_mode == "foreground":
+                parallel_fg.append(step)
+            else:
+                serial_steps.append(step)
+
+        # 6a. Process serial steps first (checkpoints, loops, etc.)
+        for step in serial_steps:
             if max_steps > 0 and steps_executed >= max_steps:
                 return finalize(run_state, "paused")
 
-            # 6b. Dispatch by step type
             if step.type == "checkpoint":
                 handle_checkpoint(run_state, step)
                 return finalize(run_state, "paused")
@@ -1037,10 +1138,35 @@ def execute_plan(run_state: RunState, max_steps: int = 0) -> dict[str, Any]:
             elif step.type == "decision":
                 handle_decision(run_state, step)
 
-            else:  # "task"
-                if step.spawn_mode == "background":
-                    launch_background(run_state, step)
-                else:
-                    execute_foreground(run_state, step)
+            else:  # background task
+                launch_background(run_state, step)
 
             steps_executed += 1
+
+        # 6b. Execute foreground tasks — in parallel when max_parallel > 1
+        #     and multiple steps are ready, otherwise serially.
+        if parallel_fg:
+            if max_steps > 0:
+                remaining_budget = max_steps - steps_executed
+                parallel_fg = parallel_fg[:remaining_budget]
+                if not parallel_fg:
+                    return finalize(run_state, "paused")
+
+            use_parallel = (
+                run_state.max_parallel > 1 and len(parallel_fg) > 1
+            )
+
+            if use_parallel:
+                workers = min(run_state.max_parallel, len(parallel_fg))
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = {
+                        pool.submit(execute_foreground, run_state, step): step
+                        for step in parallel_fg
+                    }
+                    for future in as_completed(futures):
+                        future.result()  # propagate any exceptions
+                        steps_executed += 1
+            else:
+                for step in parallel_fg:
+                    execute_foreground(run_state, step)
+                    steps_executed += 1

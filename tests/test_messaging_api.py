@@ -188,6 +188,93 @@ class TestClose:
             api.send("a", "b", "should fail")
 
 
+class TestGetMessage:
+    def test_get_message_by_id(self, api: MessageAPI) -> None:
+        sent = api.send("agent-a", "agent-b", "hello", run_id="r1")
+        fetched = api.get_message(sent.id)
+        assert fetched is not None
+        assert fetched.id == sent.id
+        assert fetched.from_agent == "agent-a"
+        assert fetched.content == "hello"
+
+    def test_get_message_not_found(self, api: MessageAPI) -> None:
+        result = api.get_message("nonexistent-id")
+        assert result is None
+
+
+class TestReply:
+    def test_reply_creates_response_with_correlation(self, api: MessageAPI) -> None:
+        original = api.send("alice", "bob", "question?", run_id="r1",
+                            message_type="request")
+        reply = api.reply(original.id, "bob", "answer!", run_id="r1")
+        assert reply.in_reply_to == original.id
+        assert reply.message_type == "response"
+        assert reply.content == "answer!"
+        assert reply.from_agent == "bob"
+
+    def test_reply_sets_recipient_to_original_sender(self, api: MessageAPI) -> None:
+        original = api.send("alice", "bob", "ping", run_id="r1")
+        reply = api.reply(original.id, "bob", "pong", run_id="r1")
+        assert reply.to_agent == "alice"
+
+    def test_reply_persists_to_db(self, api: MessageAPI) -> None:
+        original = api.send("alice", "bob", "hello", run_id="r1")
+        reply = api.reply(original.id, "bob", "hi back", run_id="r1")
+        fetched = api.get_message(reply.id)
+        assert fetched is not None
+        assert fetched.in_reply_to == original.id
+
+    def test_reply_to_nonexistent_message(self, api: MessageAPI) -> None:
+        reply = api.reply("fake-id", "bob", "reply", run_id="r1")
+        assert reply.in_reply_to == "fake-id"
+        assert reply.to_agent == ""
+
+
+class TestAcknowledge:
+    def test_acknowledge_marks_read(self, api: MessageAPI) -> None:
+        msg = api.send("alice", "bob", "urgent", run_id="r1")
+        assert api.acknowledge(msg.id) is True
+        fetched = api.get_message(msg.id)
+        assert fetched is not None
+        assert fetched.read_at != ""
+
+    def test_acknowledge_idempotent(self, api: MessageAPI) -> None:
+        msg = api.send("alice", "bob", "urgent", run_id="r1")
+        assert api.acknowledge(msg.id) is True
+        # Second ack should return False (already acknowledged)
+        assert api.acknowledge(msg.id) is False
+
+    def test_acknowledge_nonexistent_message(self, api: MessageAPI) -> None:
+        assert api.acknowledge("nonexistent-id") is False
+
+
+class TestGetReplies:
+    def test_get_replies_returns_correlated_messages(self, api: MessageAPI) -> None:
+        original = api.send("alice", "bob", "question", run_id="r1")
+        r1 = api.reply(original.id, "bob", "reply-1", run_id="r1")
+        r2 = api.reply(original.id, "bob", "reply-2", run_id="r1")
+        replies = api.get_replies(original.id)
+        assert len(replies) == 2
+        reply_ids = {r.id for r in replies}
+        assert r1.id in reply_ids
+        assert r2.id in reply_ids
+
+    def test_get_replies_empty(self, api: MessageAPI) -> None:
+        msg = api.send("alice", "bob", "no replies", run_id="r1")
+        replies = api.get_replies(msg.id)
+        assert replies == []
+
+    def test_get_replies_ordered_chronologically(self, api: MessageAPI) -> None:
+        original = api.send("alice", "bob", "question", run_id="r1")
+        time.sleep(0.01)
+        api.reply(original.id, "bob", "first-reply", run_id="r1")
+        time.sleep(0.01)
+        api.reply(original.id, "bob", "second-reply", run_id="r1")
+        replies = api.get_replies(original.id)
+        assert replies[0].content == "first-reply"
+        assert replies[1].content == "second-reply"
+
+
 class TestConcurrency:
     def test_two_instances_same_db(self, tmp_path: Path) -> None:
         db_path = tmp_path / "shared.db"

@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Import tool modules for side-effect registration
 import swarm.mcp.artifact_tools as _artifact_tools  # noqa: F401
+import swarm.mcp.context_tools as _context_tools  # noqa: F401
 import swarm.mcp.discovery_tools as _discovery_tools  # noqa: F401
 import swarm.mcp.executor_tools as _executor_tools  # noqa: F401
 import swarm.mcp.forge_tools as _forge_tools  # noqa: F401
@@ -18,6 +19,7 @@ import swarm.mcp.memory_tools as _memory_tools  # noqa: F401
 import swarm.mcp.message_tools as _message_tools  # noqa: F401
 import swarm.mcp.plan_tools as _plan_tools  # noqa: F401
 import swarm.mcp.registry_tools as _registry_tools  # noqa: F401
+from swarm.context.api import SharedContextAPI
 from swarm.dirs import ensure_base_dir
 from swarm.forge.api import ForgeAPI
 from swarm.mcp import state
@@ -47,6 +49,7 @@ def main() -> None:
     state.forge_api = ForgeAPI(base_dir / "registry.db", base_dir / "forge", sources=sources)
     state.memory_api = MemoryAPI(db_path=base_dir / "memory.db")
     state.message_api = MessageAPI(db_path=base_dir / "messages.db")
+    state.context_api = SharedContextAPI(db_path=base_dir / "context.db")
     state.plans_dir = plans_dir
 
     mcp.run()

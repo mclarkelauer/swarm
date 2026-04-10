@@ -154,6 +154,63 @@ class TestStepExecution:
         assert d["is_critic"] is True
         assert d["critic_iteration"] == 2
 
+    def test_cost_fields_default_omitted(self) -> None:
+        se = StepExecution(
+            step_id="s1",
+            attempt=0,
+            agent_type="worker",
+            pid=100,
+            started_at="t0",
+        )
+        d = se.to_dict()
+        assert "tokens_used" not in d
+        assert "cost_usd" not in d
+        assert "model" not in d
+
+    def test_cost_fields_included_when_set(self) -> None:
+        se = StepExecution(
+            step_id="s1",
+            attempt=0,
+            agent_type="worker",
+            pid=100,
+            started_at="t0",
+            tokens_used=1200,
+            cost_usd=0.05,
+            model="claude-3-opus",
+        )
+        d = se.to_dict()
+        assert d["tokens_used"] == 1200
+        assert d["cost_usd"] == 0.05
+        assert d["model"] == "claude-3-opus"
+
+    def test_cost_fields_roundtrip(self) -> None:
+        se = StepExecution(
+            step_id="s1",
+            attempt=0,
+            agent_type="worker",
+            pid=100,
+            started_at="t0",
+            tokens_used=3000,
+            cost_usd=0.12,
+            model="claude-3",
+        )
+        restored = StepExecution.from_dict(se.to_dict())
+        assert restored.tokens_used == 3000
+        assert restored.cost_usd == 0.12
+        assert restored.model == "claude-3"
+
+    def test_cost_fields_from_dict_defaults(self) -> None:
+        d = {
+            "step_id": "s1",
+            "agent_type": "worker",
+            "pid": 100,
+            "started_at": "t0",
+        }
+        se = StepExecution.from_dict(d)
+        assert se.tokens_used == 0
+        assert se.cost_usd == 0.0
+        assert se.model == ""
+
 
 # ---------------------------------------------------------------------------
 # init_run_state
@@ -314,6 +371,42 @@ class TestRecordFailure:
         record_failure(rs, plan.steps[0], attempt=2, message="retry exhausted")
 
         assert rs.log.steps[0].attempt == 2
+
+    def test_cost_params_included_in_log(self, tmp_path: Path) -> None:
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+
+        record_failure(
+            rs, plan.steps[0], attempt=0, message="boom", exit_code=1,
+            tokens_used=800, cost_usd=0.02, model="claude-3",
+        )
+
+        assert rs.log.steps[0].tokens_used == 800
+        assert rs.log.steps[0].cost_usd == 0.02
+        assert rs.log.steps[0].model == "claude-3"
+        loaded = load_run_log(rs.log_path)
+        assert loaded.steps[0].tokens_used == 800
+        assert loaded.steps[0].cost_usd == 0.02
+        assert loaded.steps[0].model == "claude-3"
+
+
+class TestRecordSuccessCost:
+    def test_cost_params_included_in_log(self, tmp_path: Path) -> None:
+        plan = _plan(_task("s1"))
+        rs = _make_run_state(plan, tmp_path)
+
+        record_success(
+            rs, plan.steps[0], attempt=0, message="done",
+            tokens_used=1500, cost_usd=0.03, model="claude-3-opus",
+        )
+
+        assert rs.log.steps[0].tokens_used == 1500
+        assert rs.log.steps[0].cost_usd == 0.03
+        assert rs.log.steps[0].model == "claude-3-opus"
+        loaded = load_run_log(rs.log_path)
+        assert loaded.steps[0].tokens_used == 1500
+        assert loaded.steps[0].cost_usd == 0.03
+        assert loaded.steps[0].model == "claude-3-opus"
 
 
 class TestRecordSkip:
@@ -1044,3 +1137,97 @@ class TestTimeoutPassthrough:
         execute_foreground(rs, step)
 
         mock_wait.assert_called_once_with(mock_proc, timeout=None)
+
+
+class TestParallelForegroundExecution:
+    """Tests for parallel foreground step execution in execute_plan."""
+
+    @patch("swarm.plan.executor.find_claude_binary")
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_parallel_executes_all_ready_steps(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        mock_find: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """With max_parallel > 1, multiple ready foreground steps run."""
+        mock_find.return_value = Path("/usr/bin/claude")
+        mock_launch.return_value = _mock_popen(0)
+        mock_wait.return_value = 0
+
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="task a", agent_type="w"),
+            PlanStep(id="b", type="task", prompt="task b", agent_type="w"),
+        )
+        rs = _make_run_state(plan, tmp_path)
+        rs.max_parallel = 4
+
+        result = execute_plan(rs)
+
+        assert result["status"] == "completed"
+        assert "a" in result["completed_step_ids"]
+        assert "b" in result["completed_step_ids"]
+        # Both steps should have been launched
+        assert mock_launch.call_count == 2
+
+    @patch("swarm.plan.executor.find_claude_binary")
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_serial_when_max_parallel_zero(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        mock_find: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """With max_parallel=0 (default), steps run serially."""
+        mock_find.return_value = Path("/usr/bin/claude")
+        mock_launch.return_value = _mock_popen(0)
+        mock_wait.return_value = 0
+
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="task a", agent_type="w"),
+            PlanStep(id="b", type="task", prompt="task b", agent_type="w"),
+        )
+        rs = _make_run_state(plan, tmp_path)
+        rs.max_parallel = 0  # serial
+
+        result = execute_plan(rs)
+
+        assert result["status"] == "completed"
+        assert mock_launch.call_count == 2
+
+    @patch("swarm.plan.executor.find_claude_binary")
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_serial_steps_not_parallelized(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        mock_find: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Checkpoint/loop/decision steps are never parallelized."""
+        mock_find.return_value = Path("/usr/bin/claude")
+
+        plan = _plan(
+            PlanStep(id="a", type="task", prompt="task", agent_type="w"),
+            PlanStep(
+                id="ckpt",
+                type="checkpoint",
+                prompt="Review",
+                depends_on=("a",),
+            ),
+        )
+        rs = _make_run_state(plan, tmp_path)
+        rs.max_parallel = 4
+
+        mock_launch.return_value = _mock_popen(0)
+        mock_wait.return_value = 0
+
+        result = execute_plan(rs)
+
+        # Should pause at checkpoint
+        assert result["status"] == "paused"

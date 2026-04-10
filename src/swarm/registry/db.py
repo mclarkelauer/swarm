@@ -58,6 +58,21 @@ def init_registry_db(path: Path) -> tuple[sqlite3.Connection, bool]:
             conn.execute(
                 f"ALTER TABLE agents ADD COLUMN {col} {col_type} NOT NULL DEFAULT {default}"
             )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_metrics (
+            agent_name    TEXT PRIMARY KEY,
+            total_runs    INTEGER NOT NULL DEFAULT 0,
+            total_successes INTEGER NOT NULL DEFAULT 0,
+            total_failures  INTEGER NOT NULL DEFAULT 0,
+            total_tokens    INTEGER NOT NULL DEFAULT 0,
+            total_cost_usd  REAL NOT NULL DEFAULT 0.0,
+            avg_duration_seconds REAL NOT NULL DEFAULT 0.0,
+            last_run_at   TEXT NOT NULL DEFAULT '',
+            updated_at    TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
     conn.commit()
 
     fts_available = _init_fts(conn)
