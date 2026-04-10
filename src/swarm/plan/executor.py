@@ -177,6 +177,9 @@ class RunState:
     # Maximum number of parallel foreground steps per wave (0 = serial)
     max_parallel: int = 0
 
+    # Trace ID for distributed tracing — propagated to agent subprocesses
+    trace_id: str = ""
+
     # Thread-safety lock for concurrent log writes during parallel execution
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -404,6 +407,15 @@ def _build_agent_system_prompt(
     return "\n".join(parts)
 
 
+def _trace_env(run_state: RunState, step: PlanStep) -> dict[str, str]:
+    """Build trace environment variables for subprocess propagation."""
+    env: dict[str, str] = {}
+    if run_state.trace_id:
+        env["SWARM_TRACE_ID"] = run_state.trace_id
+        env["SWARM_SPAN_ID"] = f"{run_state.trace_id}:{step.id}"
+    return env
+
+
 # ---------------------------------------------------------------------------
 # Foreground execution (section 5.2)
 # ---------------------------------------------------------------------------
@@ -431,6 +443,7 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
             tools=tools,
             artifacts_dir=run_state.artifacts_dir,
             step_id=step.id,
+            env_extras=_trace_env(run_state, step),
         )
 
         exit_code = wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None)
@@ -796,8 +809,69 @@ def handle_join(run_state: RunState, step: PlanStep) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Subplan execution
+# ---------------------------------------------------------------------------
+
+
+def handle_subplan(run_state: RunState, step: PlanStep) -> None:
+    """Execute a sub-plan as a nested plan execution."""
+    if not step.subplan_path:
+        record_failure(
+            run_state, step, attempt=0,
+            message="Subplan step missing subplan_path",
+        )
+        return
+
+    subplan_path = Path(step.subplan_path)
+    if not subplan_path.is_absolute():
+        subplan_path = run_state.artifacts_dir / step.subplan_path
+
+    if not subplan_path.exists():
+        record_failure(
+            run_state, step, attempt=0,
+            message=f"Subplan file not found: {subplan_path}",
+        )
+        return
+
+    try:
+        from swarm.plan.parser import load_plan
+
+        subplan = load_plan(subplan_path)
+    except Exception as exc:
+        record_failure(
+            run_state, step, attempt=0,
+            message=f"Failed to load subplan: {exc}",
+        )
+        return
+
+    # Create sub-artifacts directory
+    sub_artifacts = run_state.artifacts_dir / f"subplan_{step.id}"
+    sub_log_path = sub_artifacts / "run_log.json"
+
+    sub_state = init_run_state(
+        subplan, subplan_path, sub_artifacts, sub_log_path,
+    )
+    # Inherit memory_api
+    sub_state.memory_api = run_state.memory_api
+
+    sub_result = execute_plan(sub_state)
+
+    if sub_result["status"] == "completed":
+        record_success(
+            run_state, step, attempt=0,
+            message=f"Subplan completed: {sub_result['steps_executed']} steps",
+        )
+    else:
+        record_failure(
+            run_state, step, attempt=0,
+            message=f"Subplan {sub_result['status']}: {sub_result.get('failed_step_ids', [])}",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Decision step handling (dynamic replanning)
 # ---------------------------------------------------------------------------
+
 
 def handle_decision(run_state: RunState, step: PlanStep) -> None:
     """Evaluate decision conditions and activate/skip downstream steps."""
@@ -1035,11 +1109,13 @@ def init_run_state(
     )
     write_run_log(log, run_log_path)
 
+    import uuid as _uuid
     return RunState(
         plan=plan,
         log=log,
         log_path=run_log_path,
         artifacts_dir=artifacts_dir,
+        trace_id=str(_uuid.uuid4()),
     )
 
 
@@ -1080,6 +1156,7 @@ def finalize(run_state: RunState, status: str) -> dict[str, Any]:
         "skipped_step_ids": sorted(run_state.skipped),
         "run_log_path": str(run_state.log_path),
         "checkpoint_message": checkpoint_message,
+        "trace_id": run_state.trace_id,
         "errors": [],
     }
 
@@ -1187,6 +1264,9 @@ def execute_plan(run_state: RunState, max_steps: int = 0) -> dict[str, Any]:
 
             elif step.type == "decision":
                 handle_decision(run_state, step)
+
+            elif step.type == "subplan":
+                handle_subplan(run_state, step)
 
             else:  # background task
                 launch_background(run_state, step)

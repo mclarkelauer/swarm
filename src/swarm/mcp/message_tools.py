@@ -20,6 +20,23 @@ def _get_message_api() -> MessageAPI:
 
 
 @mcp.tool()
+def agent_get_thread(message_id: str) -> str:
+    """Get the full negotiation thread starting from a message.
+
+    Follows reply chains to collect the full conversation history.
+
+    Args:
+        message_id: ID of the initial message.
+
+    Returns:
+        JSON array of messages in chronological order.
+    """
+    api = _get_message_api()
+    thread = api.get_thread(message_id)
+    return json.dumps([m.to_dict() for m in thread])
+
+
+@mcp.tool()
 def agent_send_message(
     from_agent: str,
     to_agent: str,
@@ -42,11 +59,12 @@ def agent_send_message(
         JSON ``{"ok": true, "message": {...}}`` with the persisted message,
         or ``{"error": "..."}`` on validation failure.
     """
-    if message_type not in ("request", "response", "broadcast"):
+    valid_types = ("request", "response", "broadcast", "proposal", "counter", "accept", "reject")
+    if message_type not in valid_types:
         return json.dumps({
             "error": (
                 f"Invalid message_type '{message_type}'; "
-                f"must be 'request', 'response', or 'broadcast'"
+                f"must be one of {valid_types!r}"
             ),
         })
 

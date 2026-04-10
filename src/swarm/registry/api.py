@@ -281,6 +281,43 @@ class RegistryAPI:
             )
         return results
 
+    def update(self, agent_id: str, updates: dict[str, str | int | list[str]]) -> AgentDefinition | None:
+        """Update fields on an existing agent definition in-place.
+
+        Only allows updating non-structural fields: description, tags, notes,
+        status, working_dir.  Structural changes (system_prompt, tools,
+        permissions) require cloning.
+
+        Args:
+            agent_id: ID of the agent to update.
+            updates: Dict of field->value pairs to update.
+
+        Returns:
+            The updated AgentDefinition, or None if not found.
+        """
+        allowed_fields = {"description", "tags", "notes", "status", "working_dir"}
+        filtered = {k: v for k, v in updates.items() if k in allowed_fields}
+        if not filtered:
+            return self.get(agent_id)
+
+        set_clauses = []
+        params: list[object] = []
+        for key, value in filtered.items():
+            if key == "tags" and isinstance(value, list):
+                set_clauses.append(f"{key} = ?")
+                params.append(json.dumps(value))
+            else:
+                set_clauses.append(f"{key} = ?")
+                params.append(str(value) if not isinstance(value, int) else value)
+
+        params.append(agent_id)
+        self._conn.execute(
+            f"UPDATE agents SET {', '.join(set_clauses)} WHERE id = ?",
+            tuple(params),
+        )
+        self._conn.commit()
+        return self.get(agent_id)
+
     def clone(self, agent_id: str, overrides: dict[str, str | int | list[str]]) -> AgentDefinition:
         """Clone an existing definition with overrides. Sets ``parent_id``.
 

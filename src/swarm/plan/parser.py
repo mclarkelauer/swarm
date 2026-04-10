@@ -13,7 +13,7 @@ from swarm.plan.versioning import next_version
 if TYPE_CHECKING:
     from swarm.registry.api import RegistryAPI
 
-_VALID_STEP_TYPES = {"task", "checkpoint", "loop", "fan_out", "join", "decision"}
+_VALID_STEP_TYPES = {"task", "checkpoint", "loop", "fan_out", "join", "decision", "subplan"}
 _VALID_ON_FAILURE = {"stop", "skip", "retry"}
 _VALID_SPAWN_MODES = {"foreground", "background"}
 

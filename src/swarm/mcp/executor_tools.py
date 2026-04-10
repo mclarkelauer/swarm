@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from swarm.errors import ExecutionError, PlanError
+from swarm.mcp import state
 from swarm.mcp.instance import mcp
 from swarm.plan.executor import execute_plan, init_run_state
 from swarm.plan.parser import load_plan
@@ -314,3 +315,37 @@ def plan_run_events(
     log = EventLog(path)
     events, new_offset = log.read_since(int(offset))
     return json.dumps({"events": events, "offset": new_offset})
+
+
+@mcp.tool()
+def plan_run_logs(plans_dir: str = "") -> str:
+    """List historical run log files.
+
+    Args:
+        plans_dir: Directory to search for run logs. Defaults to the
+            configured plans directory.
+
+    Returns:
+        JSON array of run log summaries.
+    """
+    search_dir = Path(plans_dir) if plans_dir else Path(state.plans_dir) if state.plans_dir else None
+    if search_dir is None or not search_dir.exists():
+        return json.dumps([])
+
+    logs: list[dict[str, object]] = []
+    for log_path in sorted(search_dir.glob("**/run_log*.json"), reverse=True):
+        try:
+            log = load_run_log(log_path)
+            logs.append({
+                "path": str(log_path),
+                "status": log.status,
+                "started_at": log.started_at,
+                "finished_at": log.finished_at,
+                "plan_version": log.plan_version,
+                "steps_completed": len(log.completed_step_ids),
+                "total_steps": len(log.steps),
+            })
+        except (json.JSONDecodeError, KeyError, OSError):
+            continue
+
+    return json.dumps(logs)

@@ -115,6 +115,50 @@ def registry_get_metrics(agent_name: str = "") -> str:
 
 
 @mcp.tool()
+def registry_update(
+    agent_id: str,
+    description: str = "",
+    tags: str = "",
+    notes: str = "",
+    status: str = "",
+    working_dir: str = "",
+) -> str:
+    """Update metadata fields on an existing agent without cloning.
+
+    Only non-structural fields can be updated in-place. For system_prompt,
+    tools, or permissions changes, use forge_clone instead.
+
+    Args:
+        agent_id: ID of the agent to update.
+        description: New description (empty = no change).
+        tags: Comma-separated tags (empty = no change).
+        notes: New notes (empty = no change).
+        status: New status: active/draft/deprecated/archived (empty = no change).
+        working_dir: New working directory (empty = no change).
+
+    Returns:
+        JSON object with the updated agent definition.
+    """
+    assert state.registry_api is not None
+    updates: dict[str, str | int | list[str]] = {}
+    if description:
+        updates["description"] = description
+    if tags:
+        updates["tags"] = [t.strip() for t in tags.split(",")]
+    if notes:
+        updates["notes"] = notes
+    if status:
+        updates["status"] = status
+    if working_dir:
+        updates["working_dir"] = working_dir
+
+    result = state.registry_api.update(agent_id, updates)
+    if result is None:
+        return json.dumps({"error": f"Agent '{agent_id}' not found"})
+    return json.dumps(result.to_dict())
+
+
+@mcp.tool()
 def registry_remove(agent_id: str = "", name: str = "") -> str:
     """Remove an agent definition from the registry.
 

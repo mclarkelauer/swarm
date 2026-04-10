@@ -6,7 +6,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-_VALID_MESSAGE_TYPES = ("request", "response", "broadcast")
+_VALID_MESSAGE_TYPES = (
+    "request", "response", "broadcast",
+    "proposal", "counter", "accept", "reject",
+)
 
 
 @dataclass(frozen=True)

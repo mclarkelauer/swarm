@@ -605,6 +605,54 @@ def plan_template_instantiate(
     })
 
 
+@mcp.tool()
+def plan_remove_step(plan_path: str, step_id: str) -> str:
+    """Remove a step from a plan.
+
+    Also removes the step from any depends_on lists.
+
+    Args:
+        plan_path: Path to the plan JSON file.
+        step_id: ID of the step to remove.
+
+    Returns:
+        JSON object confirming removal with updated step count.
+    """
+    path = Path(plan_path)
+    if not path.exists():
+        return json.dumps({"error": f"Plan file not found: {plan_path}"})
+
+    plan = load_plan(path)
+    original_count = len(plan.steps)
+
+    # Remove the step
+    plan.steps = [s for s in plan.steps if s.id != step_id]
+
+    if len(plan.steps) == original_count:
+        return json.dumps({"error": f"Step '{step_id}' not found in plan"})
+
+    # Remove from depends_on lists
+    updated_steps = []
+    for s in plan.steps:
+        if step_id in s.depends_on:
+            new_deps = tuple(d for d in s.depends_on if d != step_id)
+            # Create new step with updated depends_on (frozen dataclass)
+            d = s.to_dict()
+            d["depends_on"] = list(new_deps)
+            updated_steps.append(PlanStep.from_dict(d))
+        else:
+            updated_steps.append(s)
+    plan.steps = updated_steps
+
+    # Write back
+    path.write_text(json.dumps(plan.to_dict(), indent=2) + "\n")
+
+    return json.dumps({
+        "removed": step_id,
+        "remaining_steps": len(plan.steps),
+    })
+
+
 def _parse_duration(started_at: str, finished_at: str) -> float | None:
     """Return duration in seconds between two ISO timestamps, or None on failure."""
     if not started_at or not finished_at:

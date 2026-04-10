@@ -323,6 +323,35 @@ class MessageAPI:
         )
         return [self._row_to_message(r) for r in cur.fetchall()]
 
+    def get_thread(self, initial_message_id: str) -> list[AgentMessage]:
+        """Get all messages in a negotiation thread.
+
+        Follows the in_reply_to chain to collect the full conversation.
+
+        Args:
+            initial_message_id: ID of the first message in the thread.
+
+        Returns:
+            List of messages in chronological order.
+        """
+        messages: list[AgentMessage] = []
+        msg = self.get_message(initial_message_id)
+        if msg:
+            messages.append(msg)
+
+        # Get direct replies
+        replies = self.get_replies(initial_message_id)
+        messages.extend(replies)
+
+        # Recursively get replies to replies
+        for reply in replies:
+            nested = self.get_replies(reply.id)
+            messages.extend(nested)
+
+        # Sort chronologically
+        messages.sort(key=lambda m: m.created_at)
+        return messages
+
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()

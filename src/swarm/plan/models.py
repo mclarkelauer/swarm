@@ -178,6 +178,7 @@ class PlanStep:
     decision_config: DecisionConfig | None = None
     message_to: str = ""
     timeout: int = 0  # per-step timeout in seconds; 0 = no timeout
+    subplan_path: str = ""  # Path to a sub-plan JSON file for type="subplan" steps
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -221,6 +222,8 @@ class PlanStep:
             d["message_to"] = self.message_to
         if self.timeout > 0:
             d["timeout"] = self.timeout
+        if self.subplan_path:
+            d["subplan_path"] = self.subplan_path
         return d
 
     @classmethod
@@ -263,6 +266,7 @@ class PlanStep:
             decision_config=decision_config,
             message_to=d.get("message_to", ""),
             timeout=d.get("timeout", 0),
+            subplan_path=d.get("subplan_path", ""),
         )
 
 
