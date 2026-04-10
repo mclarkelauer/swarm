@@ -110,11 +110,12 @@ class TestSwarmDiscoverResponseShape:
         assert "system_prompt" not in result[0]
 
     def test_results_have_expected_keys(self) -> None:
-        """Each result must have exactly id, name, description, tags, usage_count, failure_count."""
+        """Each result must have exactly id, name, description, tags, usage_count, failure_count, success_rate, status."""
         forge_create("my-agent", "Prompt.", description="Desc", tags='["t1"]')
         result = json.loads(swarm_discover())
         assert set(result[0].keys()) == {
-            "id", "name", "description", "tags", "usage_count", "failure_count"
+            "id", "name", "description", "tags", "usage_count", "failure_count",
+            "success_rate", "status",
         }
 
     def test_tags_is_list_type(self) -> None:
@@ -161,6 +162,14 @@ class TestSwarmDiscoverPerformanceFields:
         forge_create("dated-agent", "Prompt.")
         result = json.loads(swarm_discover())
         assert "last_used" not in result[0]
+
+
+class TestSwarmDiscoverStatusField:
+    def test_results_include_status(self) -> None:
+        forge_create("my-agent", "Prompt.")
+        result = json.loads(swarm_discover())
+        assert "status" in result[0]
+        assert result[0]["status"] == "active"
 
 
 class TestSwarmDiscoverReturnType:

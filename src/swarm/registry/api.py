@@ -67,12 +67,13 @@ class RegistryAPI:
             failure_count=int(row[12]),
             last_used=row[13],
             notes=row[14],
+            status=row[15],
         )
 
     _SELECT_COLS = (
         "id, name, parent_id, system_prompt, tools, permissions, "
         "working_dir, source, created_at, description, tags, "
-        "usage_count, failure_count, last_used, notes"
+        "usage_count, failure_count, last_used, notes, status"
     )
 
     # ------------------------------------------------------------------
@@ -90,6 +91,7 @@ class RegistryAPI:
         description: str = "",
         tags: list[str] | None = None,
         notes: str = "",
+        status: str = "active",
     ) -> AgentDefinition:
         """Register a new agent definition."""
         agent_id = str(uuid.uuid4())
@@ -108,13 +110,14 @@ class RegistryAPI:
             source=source,
             created_at=created_at,
             notes=notes,
+            status=status,
         )
 
         self._conn.execute(
             "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
             "permissions, working_dir, source, created_at, description, tags, "
-            "usage_count, failure_count, last_used, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "usage_count, failure_count, last_used, notes, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 defn.id,
                 defn.name,
@@ -131,6 +134,7 @@ class RegistryAPI:
                 defn.failure_count,
                 defn.last_used,
                 defn.notes,
+                defn.status,
             ),
         )
         self._conn.commit()
@@ -308,13 +312,14 @@ class RegistryAPI:
             failure_count=int(overrides["failure_count"]) if "failure_count" in overrides else 0,  # type: ignore[arg-type]
             last_used=str(overrides["last_used"]) if "last_used" in overrides else "",
             notes=data.get("notes", original.notes),
+            status="active",
         )
 
         self._conn.execute(
             "INSERT INTO agents (id, name, parent_id, system_prompt, tools, "
             "permissions, working_dir, source, created_at, description, tags, "
-            "usage_count, failure_count, last_used, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "usage_count, failure_count, last_used, notes, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 defn.id,
                 defn.name,
@@ -331,6 +336,7 @@ class RegistryAPI:
                 defn.failure_count,
                 defn.last_used,
                 defn.notes,
+                defn.status,
             ),
         )
         self._conn.commit()

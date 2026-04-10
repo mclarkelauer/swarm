@@ -949,3 +949,98 @@ class TestExecutePlanWithDecision:
         assert "decide" in result["completed_step_ids"]
         assert "test" in result["completed_step_ids"]
         assert "fix" in result["skipped_step_ids"]
+
+
+class TestBuildAgentSystemPrompt:
+    """Tests for _build_agent_system_prompt with memory injection."""
+
+    def test_with_memory_injects_agent_memories(self, tmp_path: Path) -> None:
+        from swarm.memory.api import MemoryAPI
+        from swarm.plan.executor import _build_agent_system_prompt
+
+        mem_api = MemoryAPI(tmp_path / "mem.db")
+        mem_api.store("test-agent", "Always use pytest fixtures", memory_type="procedural")
+
+        step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="test-agent")
+        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+
+        assert "<agent-memory>" in result
+        assert "Always use pytest fixtures" in result
+
+    def test_without_memory_api_no_memory_block(self, tmp_path: Path) -> None:
+        from swarm.plan.executor import _build_agent_system_prompt
+
+        step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="test-agent")
+        result = _build_agent_system_prompt(step, tmp_path, memory_api=None)
+
+        assert "<agent-memory>" not in result
+
+    def test_no_agent_type_skips_memory(self, tmp_path: Path) -> None:
+        from swarm.memory.api import MemoryAPI
+        from swarm.plan.executor import _build_agent_system_prompt
+
+        mem_api = MemoryAPI(tmp_path / "mem.db")
+        mem_api.store("test-agent", "some memory")
+
+        step = PlanStep(id="s1", type="task", prompt="do stuff")
+        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+
+        assert "<agent-memory>" not in result
+
+    def test_empty_memories_no_block(self, tmp_path: Path) -> None:
+        from swarm.memory.api import MemoryAPI
+        from swarm.plan.executor import _build_agent_system_prompt
+
+        mem_api = MemoryAPI(tmp_path / "mem.db")
+        # No memories stored for this agent
+
+        step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="other-agent")
+        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+
+        assert "<agent-memory>" not in result
+
+
+class TestTimeoutPassthrough:
+    """Tests that per-step timeout is threaded to wait_with_timeout."""
+
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_timeout_passed_when_set(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_launch.return_value = mock_proc
+        mock_wait.return_value = 0
+
+        step = PlanStep(
+            id="s1", type="task", prompt="p", agent_type="worker", timeout=120,
+        )
+        plan = Plan(version=1, goal="test", steps=[step])
+        rs = _make_run_state(plan, tmp_path)
+        execute_foreground(rs, step)
+
+        mock_wait.assert_called_once_with(mock_proc, timeout=120)
+
+    @patch("swarm.plan.executor.launch_agent")
+    @patch("swarm.plan.executor.wait_with_timeout")
+    def test_no_timeout_when_zero(
+        self,
+        mock_wait: MagicMock,
+        mock_launch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_proc = MagicMock()
+        mock_launch.return_value = mock_proc
+        mock_wait.return_value = 0
+
+        step = PlanStep(
+            id="s1", type="task", prompt="p", agent_type="worker", timeout=0,
+        )
+        plan = Plan(version=1, goal="test", steps=[step])
+        rs = _make_run_state(plan, tmp_path)
+        execute_foreground(rs, step)
+
+        mock_wait.assert_called_once_with(mock_proc, timeout=None)

@@ -14,6 +14,7 @@ from swarm.mcp.memory_tools import (
     memory_forget,
     memory_prune,
     memory_recall,
+    memory_reinforce,
     memory_store,
 )
 
@@ -157,3 +158,47 @@ class TestMemoryPrune:
         result = json.loads(memory_prune("nonexistent-agent"))
         assert result["decayed"] == 0
         assert result["pruned"] == 0
+
+
+class TestMemoryReinforce:
+    def test_memory_reinforce_boosts_score(self) -> None:
+        stored = json.loads(memory_store("agent-x", "useful fact"))
+        memory_id = stored["id"]
+
+        # Set relevance low first
+        assert state.memory_api is not None
+        state.memory_api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.3 WHERE id = ?",
+            (memory_id,),
+        )
+        state.memory_api._conn.commit()
+
+        result = json.loads(memory_reinforce(memory_id, boost="0.5"))
+        assert "error" not in result
+        assert result["relevance_score"] == pytest.approx(0.8)
+
+    def test_memory_reinforce_clamps_at_one(self) -> None:
+        stored = json.loads(memory_store("agent-x", "another fact"))
+        memory_id = stored["id"]
+
+        result = json.loads(memory_reinforce(memory_id, boost="0.3"))
+        # relevance_score=1.0 is the default, so sparse serialization may omit it
+        assert result.get("relevance_score", 1.0) == 1.0
+
+    def test_memory_reinforce_default_boost(self) -> None:
+        stored = json.loads(memory_store("agent-x", "third fact"))
+        memory_id = stored["id"]
+
+        assert state.memory_api is not None
+        state.memory_api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.4 WHERE id = ?",
+            (memory_id,),
+        )
+        state.memory_api._conn.commit()
+
+        result = json.loads(memory_reinforce(memory_id))
+        assert result["relevance_score"] == pytest.approx(0.9)
+
+    def test_memory_reinforce_not_found(self) -> None:
+        result = json.loads(memory_reinforce("nonexistent-id"))
+        assert "error" in result

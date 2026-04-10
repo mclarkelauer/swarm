@@ -180,6 +180,38 @@ class TestMigration:
         for col in ("usage_count", "failure_count", "last_used", "notes"):
             assert col in col_names
 
+    def test_migration_adds_status_column(self, tmp_path: Path) -> None:
+        """Running init_registry_db on a pre-status DB adds the status column."""
+        db_path = tmp_path / "old_registry.db"
+
+        # Create a DB with the pre-status schema
+        old_conn = self._create_old_schema_db(db_path)
+        old_conn.execute("ALTER TABLE agents ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+        old_conn.execute("ALTER TABLE agents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+        old_conn.execute("ALTER TABLE agents ADD COLUMN usage_count INTEGER NOT NULL DEFAULT 0")
+        old_conn.execute("ALTER TABLE agents ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0")
+        old_conn.execute("ALTER TABLE agents ADD COLUMN last_used TEXT NOT NULL DEFAULT ''")
+        old_conn.execute("ALTER TABLE agents ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+        old_conn.execute(
+            "INSERT INTO agents (id, name, system_prompt) VALUES ('s1', 'existing', 'prompt')"
+        )
+        old_conn.commit()
+        old_conn.close()
+
+        # Apply current init_registry_db — must add the status column
+        new_conn, _ = init_registry_db(db_path)
+
+        col_info = new_conn.execute("PRAGMA table_info(agents)").fetchall()
+        col_names = {row[1] for row in col_info}
+        assert "status" in col_names
+
+        # Existing row must have 'active' as default
+        row = new_conn.execute(
+            "SELECT status FROM agents WHERE id = 's1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "active"
+
     def test_insert_with_performance_fields(self, tmp_path: Path) -> None:
         conn, _ = init_registry_db(tmp_path / "registry.db")
         conn.execute(

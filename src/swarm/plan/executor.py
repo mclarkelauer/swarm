@@ -19,6 +19,8 @@ from typing import Any
 import structlog
 
 from swarm.errors import ExecutionError
+from swarm.memory.api import MemoryAPI
+from swarm.memory.injection import format_memories_for_prompt
 from swarm.plan.conditions import evaluate_condition
 from swarm.plan.dag import get_ready_steps
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
@@ -139,6 +141,9 @@ class RunState:
     # Decision overrides: step_id -> overridden condition value
     decision_overrides: dict[str, str] = field(default_factory=dict)
 
+    # Optional memory API for automatic memory injection
+    memory_api: MemoryAPI | None = None
+
 
 # ---------------------------------------------------------------------------
 # Helpers: find step, safe interpolation
@@ -248,11 +253,16 @@ def _resolve_step_prompt(plan: Plan, step: PlanStep) -> str:
     return _safe_interpolate(step.prompt, plan.variables)
 
 
-def _build_agent_system_prompt(step: PlanStep, artifacts_dir: Path) -> str:
+def _build_agent_system_prompt(
+    step: PlanStep,
+    artifacts_dir: Path,
+    memory_api: MemoryAPI | None = None,
+) -> str:
     """Build the system prompt for an agent subprocess.
 
     Appends execution context (artifacts directory, output artifact path)
-    to the agent's base prompt.
+    to the agent's base prompt.  When *memory_api* is provided, recalled
+    memories for the agent type are injected into the prompt.
     """
     parts: list[str] = []
     parts.append(f"You are executing step '{step.id}' of a Swarm plan.")
@@ -263,6 +273,22 @@ def _build_agent_system_prompt(step: PlanStep, artifacts_dir: Path) -> str:
         parts.append(
             f"Write your output to: {artifacts_dir / step.output_artifact}"
         )
+
+    # Inject agent memories if available (best-effort — never block execution)
+    if memory_api is not None and step.agent_type:
+        try:
+            memories = memory_api.recall(
+                agent_name=step.agent_type,
+                limit=10,
+                min_relevance=0.2,
+            )
+            memory_block = format_memories_for_prompt(memories)
+            if memory_block:
+                parts.append("")
+                parts.append(memory_block)
+        except Exception:  # noqa: BLE001
+            pass
+
     return "\n".join(parts)
 
 
@@ -279,7 +305,7 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
     while True:
         step_started_at = _iso_now()
         prompt = _resolve_step_prompt(run_state.plan, step)
-        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir)
+        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
         tools = list(step.required_tools)
 
         proc = launch_agent(
@@ -290,7 +316,7 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
             step_id=step.id,
         )
 
-        exit_code = wait_with_timeout(proc, timeout=None)
+        exit_code = wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None)
 
         if exit_code == 0:
             # Check if critic loop is needed
@@ -362,7 +388,7 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
 def launch_background(run_state: RunState, step: PlanStep) -> None:
     """Launch a background step subprocess."""
     prompt = _resolve_step_prompt(run_state.plan, step)
-    system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir)
+    system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
     tools = list(step.required_tools)
 
     proc = launch_agent(
@@ -531,7 +557,7 @@ def handle_loop(run_state: RunState, step: PlanStep) -> None:
 
         # Execute loop body
         prompt = _resolve_step_prompt(run_state.plan, step)
-        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir)
+        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
         tools = list(step.required_tools)
 
         proc = launch_agent(
@@ -542,7 +568,7 @@ def handle_loop(run_state: RunState, step: PlanStep) -> None:
             step_id=f"{step.id}_iter{iteration}",
         )
 
-        exit_code = wait_with_timeout(proc, timeout=None)
+        exit_code = wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None)
 
         if exit_code != 0:
             record_failure(
@@ -607,7 +633,7 @@ def handle_fan_out(run_state: RunState, step: PlanStep) -> None:
     for i, branch in enumerate(step.fan_out_config.branches):
         branch_id = f"{step.id}::{i}"
         branch_prompt = _safe_interpolate(branch.prompt, run_state.plan.variables)
-        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir)
+        system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
         tools = list(step.required_tools)
 
         proc = launch_agent(
@@ -747,7 +773,7 @@ def run_critic_loop(run_state: RunState, step: PlanStep) -> CriticResult:
             step_id=f"{step.id}_critic_{critic_iter}",
         )
 
-        exit_code = wait_with_timeout(proc, timeout=None)
+        exit_code = wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None)
 
         if exit_code != 0:
             # Critic process failed -- fail-open
@@ -775,7 +801,7 @@ def run_critic_loop(run_state: RunState, step: PlanStep) -> CriticResult:
                 f"\n\nCritic feedback (iteration {critic_iter}):\n"
                 f"{verdict.feedback}"
             )
-            system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir)
+            system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
 
             proc = launch_agent(
                 agent_prompt=system_prompt,
@@ -784,7 +810,7 @@ def run_critic_loop(run_state: RunState, step: PlanStep) -> CriticResult:
                 artifacts_dir=run_state.artifacts_dir,
                 step_id=f"{step.id}_revision_{critic_iter}",
             )
-            if wait_with_timeout(proc, timeout=None) != 0:
+            if wait_with_timeout(proc, timeout=step.timeout if step.timeout > 0 else None) != 0:
                 return CriticResult(approved=False, feedback="Revision failed")
 
     return CriticResult(

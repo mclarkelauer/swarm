@@ -362,3 +362,32 @@ class TestPlanMaxReplans:
         d = {"version": 1, "goal": "g", "steps": []}
         plan = Plan.from_dict(d)
         assert plan.max_replans == 5
+
+
+class TestPlanStepTimeout:
+    """Tests for per-step timeout field."""
+
+    def test_timeout_defaults_to_zero(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p")
+        assert step.timeout == 0
+
+    def test_timeout_zero_not_emitted_in_to_dict(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", timeout=0)
+        d = step.to_dict()
+        assert "timeout" not in d
+
+    def test_timeout_positive_emitted_in_to_dict(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", timeout=300)
+        d = step.to_dict()
+        assert d["timeout"] == 300
+
+    def test_timeout_roundtrip(self) -> None:
+        step = PlanStep(id="s1", type="task", prompt="p", timeout=600)
+        d = step.to_dict()
+        restored = PlanStep.from_dict(d)
+        assert restored.timeout == 600
+
+    def test_from_dict_without_timeout_defaults_to_zero(self) -> None:
+        d = {"id": "s1", "type": "task", "prompt": "p"}
+        step = PlanStep.from_dict(d)
+        assert step.timeout == 0

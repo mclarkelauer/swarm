@@ -233,6 +233,50 @@ class MemoryAPI:
         self._conn.commit()
         return cur.rowcount > 0
 
+    def reinforce(
+        self,
+        memory_id: str,
+        boost: float = 0.5,
+    ) -> MemoryEntry | None:
+        """Boost a memory's relevance score.
+
+        Reinforces a memory that proved useful, counteracting time-based
+        decay.  The new score is clamped to [0.0, 1.0].
+
+        Args:
+            memory_id: The UUID of the memory to reinforce.
+            boost: Amount to add to relevance_score (default 0.5).
+
+        Returns:
+            The updated MemoryEntry, or None if not found.
+        """
+        cur = self._conn.execute(
+            f"SELECT {self._SELECT_COLS} FROM memory WHERE id = ?",
+            (memory_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+
+        entry = self._row_to_entry(row)
+        new_score = min(1.0, max(0.0, entry.relevance_score + boost))
+
+        self._conn.execute(
+            "UPDATE memory SET relevance_score = ? WHERE id = ?",
+            (new_score, memory_id),
+        )
+        self._conn.commit()
+
+        return MemoryEntry(
+            id=entry.id,
+            agent_name=entry.agent_name,
+            content=entry.content,
+            memory_type=entry.memory_type,
+            context=entry.context,
+            created_at=entry.created_at,
+            relevance_score=new_score,
+        )
+
     def decay(self, agent_name: str | None = None) -> int:
         """Apply time-based decay to relevance scores.
 

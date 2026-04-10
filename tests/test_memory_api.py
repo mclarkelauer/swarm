@@ -288,6 +288,70 @@ class TestPrune:
         assert len(api.recall("agent-b")) == 1
 
 
+class TestReinforce:
+    def test_reinforce_boosts_relevance(self, api: MemoryAPI) -> None:
+        entry = api.store("agent-a", "important fact")
+        # Simulate some decay
+        api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.3 WHERE id = ?",
+            (entry.id,),
+        )
+        api._conn.commit()
+
+        result = api.reinforce(entry.id, boost=0.5)
+        assert result is not None
+        assert result.relevance_score == pytest.approx(0.8)
+
+    def test_reinforce_clamps_to_one(self, api: MemoryAPI) -> None:
+        entry = api.store("agent-a", "fact")  # starts at 1.0
+        result = api.reinforce(entry.id, boost=0.5)
+        assert result is not None
+        assert result.relevance_score == 1.0
+
+    def test_reinforce_clamps_to_zero(self, api: MemoryAPI) -> None:
+        entry = api.store("agent-a", "fact")
+        api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.1 WHERE id = ?",
+            (entry.id,),
+        )
+        api._conn.commit()
+
+        result = api.reinforce(entry.id, boost=-0.5)
+        assert result is not None
+        assert result.relevance_score == 0.0
+
+    def test_reinforce_not_found(self, api: MemoryAPI) -> None:
+        result = api.reinforce("nonexistent-id", boost=0.5)
+        assert result is None
+
+    def test_reinforce_default_boost(self, api: MemoryAPI) -> None:
+        entry = api.store("agent-a", "fact")
+        api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.4 WHERE id = ?",
+            (entry.id,),
+        )
+        api._conn.commit()
+
+        result = api.reinforce(entry.id)  # default boost=0.5
+        assert result is not None
+        assert result.relevance_score == pytest.approx(0.9)
+
+    def test_reinforce_persists_to_db(self, api: MemoryAPI) -> None:
+        entry = api.store("agent-a", "fact")
+        api._conn.execute(
+            "UPDATE memory SET relevance_score = 0.3 WHERE id = ?",
+            (entry.id,),
+        )
+        api._conn.commit()
+
+        api.reinforce(entry.id, boost=0.4)
+
+        # Verify persisted
+        recalled = api.recall("agent-a")
+        assert len(recalled) == 1
+        assert recalled[0].relevance_score == pytest.approx(0.7)
+
+
 class TestStoreRecallRoundTrip:
     def test_store_then_recall_roundtrip(self, api: MemoryAPI) -> None:
         stored = api.store(

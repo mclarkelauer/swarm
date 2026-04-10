@@ -23,6 +23,7 @@ def _agent_summary(a: AgentDefinition) -> dict:  # type: ignore[type-arg]
     d["system_prompt"] = sp[:80] + ("..." if len(sp) > 80 else "")
     d["usage_count"] = a.usage_count
     d["failure_count"] = a.failure_count
+    d["status"] = a.status
     return d
 
 

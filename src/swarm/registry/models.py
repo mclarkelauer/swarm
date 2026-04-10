@@ -28,6 +28,17 @@ class AgentDefinition:
     failure_count: int = 0
     last_used: str = ""
     notes: str = ""
+    status: str = "active"
+
+    @property
+    def success_rate(self) -> float:
+        """Computed success rate: 1.0 - (failure_count / usage_count).
+
+        Returns 1.0 if usage_count is 0 (no data).
+        """
+        if self.usage_count == 0:
+            return 1.0
+        return 1.0 - (self.failure_count / self.usage_count)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dictionary suitable for JSON encoding."""
@@ -47,6 +58,8 @@ class AgentDefinition:
             "failure_count": self.failure_count,
             "last_used": self.last_used,
             "notes": self.notes,
+            "status": self.status,
+            "success_rate": self.success_rate,
         }
 
     @classmethod
@@ -68,4 +81,5 @@ class AgentDefinition:
             failure_count=d.get("failure_count", 0),
             last_used=d.get("last_used", ""),
             notes=d.get("notes", ""),
+            status=d.get("status", "active"),
         )

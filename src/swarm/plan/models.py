@@ -177,6 +177,7 @@ class PlanStep:
     retry_config: RetryConfig | None = None
     decision_config: DecisionConfig | None = None
     message_to: str = ""
+    timeout: int = 0  # per-step timeout in seconds; 0 = no timeout
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -218,6 +219,8 @@ class PlanStep:
             d["decision_config"] = self.decision_config.to_dict()
         if self.message_to:
             d["message_to"] = self.message_to
+        if self.timeout > 0:
+            d["timeout"] = self.timeout
         return d
 
     @classmethod
@@ -259,6 +262,7 @@ class PlanStep:
             retry_config=retry_config,
             decision_config=decision_config,
             message_to=d.get("message_to", ""),
+            timeout=d.get("timeout", 0),
         )
 
 

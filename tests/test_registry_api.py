@@ -325,6 +325,59 @@ class TestPerformanceMetadata:
         assert results[0].name == "searcher"
 
 
+class TestStatus:
+    def test_create_default_status_active(self, api: RegistryAPI) -> None:
+        d = api.create("agent", "prompt", [], [])
+        assert d.status == "active"
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.status == "active"
+
+    def test_create_with_status_draft(self, api: RegistryAPI) -> None:
+        d = api.create("draft-agent", "prompt", [], [], status="draft")
+        assert d.status == "draft"
+        retrieved = api.get(d.id)
+        assert retrieved is not None
+        assert retrieved.status == "draft"
+
+    def test_clone_defaults_status_to_active(self, api: RegistryAPI) -> None:
+        original = api.create("original", "prompt", [], [], status="deprecated")
+        clone = api.clone(original.id, {"name": "cloned"})
+        assert clone.status == "active"
+
+    def test_to_dict_includes_status(self, api: RegistryAPI) -> None:
+        d = api.create("agent", "prompt", [], [], status="archived")
+        data = d.to_dict()
+        assert "status" in data
+        assert data["status"] == "archived"
+
+    def test_from_dict_roundtrip_with_status(self) -> None:
+        from swarm.registry.models import AgentDefinition
+
+        data = {
+            "id": "test-id",
+            "name": "test-agent",
+            "system_prompt": "prompt",
+            "status": "deprecated",
+        }
+        defn = AgentDefinition.from_dict(data)
+        assert defn.status == "deprecated"
+        roundtripped = defn.to_dict()
+        assert roundtripped["status"] == "deprecated"
+
+    def test_from_dict_backward_compat_missing_status(self) -> None:
+        """from_dict must default to 'active' when status is absent."""
+        from swarm.registry.models import AgentDefinition
+
+        old_dict = {
+            "id": "old-id",
+            "name": "old-agent",
+            "system_prompt": "old prompt",
+        }
+        defn = AgentDefinition.from_dict(old_dict)
+        assert defn.status == "active"
+
+
 class TestInspect:
     def test_inspect_returns_details(self, api: RegistryAPI) -> None:
         d = api.create("test", "prompt", ["tool"], ["perm"])

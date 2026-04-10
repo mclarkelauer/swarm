@@ -31,6 +31,8 @@ def swarm_discover(query: str = "") -> str:
                 "tags": list(a.tags),
                 "usage_count": a.usage_count,
                 "failure_count": a.failure_count,
+                "success_rate": a.success_rate,
+                "status": a.status,
             }
             for a in agents
         ]

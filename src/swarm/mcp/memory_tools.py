@@ -90,6 +90,32 @@ def memory_forget(memory_id: str) -> str:
 
 
 @mcp.tool()
+def memory_reinforce(
+    memory_id: str,
+    boost: str = "0.5",
+) -> str:
+    """Boost a memory's relevance score when it proves useful.
+
+    Counteracts time-based decay by adding to the relevance score.
+    Use this when an agent's recalled memory contributed to a
+    successful outcome.
+
+    Args:
+        memory_id: The UUID of the memory to reinforce.
+        boost: Amount to add to relevance_score (default 0.5).
+            Clamped to [0.0, 1.0].
+
+    Returns:
+        JSON object with the updated memory entry, or error if not found.
+    """
+    assert state.memory_api is not None
+    entry = state.memory_api.reinforce(memory_id, boost=float(boost))
+    if entry is None:
+        return json.dumps({"error": f"Memory '{memory_id}' not found"})
+    return json.dumps(entry.to_dict())
+
+
+@mcp.tool()
 def memory_prune(
     agent_name: str = "",
     max_age_days: str = "",
