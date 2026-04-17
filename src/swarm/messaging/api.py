@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from swarm.messaging.db import init_message_db
+from swarm._db_pool import ThreadLocalConnectionPool
+from swarm.messaging.db import init_message_schema
 from swarm.messaging.models import AgentMessage
 
 
@@ -19,7 +21,20 @@ class MessageAPI:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._conn = init_message_db(db_path)
+        self._pool: ThreadLocalConnectionPool = ThreadLocalConnectionPool(
+            db_path, initializer=init_message_schema,
+        )
+        # Eagerly create the schema on the owning thread.
+        self._pool.get()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return the SQLite connection bound to the calling thread."""
+        return self._pool.get()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Backwards-compatible alias for :meth:`_get_conn`."""
+        return self._pool.get()
 
     # ------------------------------------------------------------------
     # helpers
@@ -352,9 +367,28 @@ class MessageAPI:
         messages.sort(key=lambda m: m.created_at)
         return messages
 
+    def count(self, run_id: str | None = None) -> int:
+        """Return the number of stored messages.
+
+        Args:
+            run_id: Optional filter — count only messages from this run.
+
+        Returns:
+            Number of rows in the ``messages`` table matching the filter.
+        """
+        if run_id is None:
+            cur = self._get_conn().execute("SELECT COUNT(*) FROM messages")
+        else:
+            cur = self._get_conn().execute(
+                "SELECT COUNT(*) FROM messages WHERE run_id = ?",
+                (run_id,),
+            )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
-        """Close the database connection."""
-        self._conn.close()
+        """Close every thread-local SQLite connection."""
+        self._pool.close_all()
 
     def __enter__(self) -> MessageAPI:
         return self

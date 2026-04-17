@@ -7,20 +7,15 @@ import sqlite3
 from pathlib import Path
 
 
-def init_message_db(path: Path) -> sqlite3.Connection:
-    """Create (or open) the message database and ensure schema exists.
+def init_message_schema(conn: sqlite3.Connection) -> None:
+    """Install the messaging schema (tables, indexes) on a connection.
+
+    Idempotent — safe to call repeatedly.
 
     Args:
-        path: Path to the SQLite database file.
-
-    Returns:
-        An open sqlite3.Connection with WAL mode enabled.
+        conn: An open SQLite connection.  Default Swarm PRAGMAs are
+            expected to have already been applied by the caller.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS messages (
@@ -50,4 +45,22 @@ def init_message_db(path: Path) -> sqlite3.Connection:
             )
     conn.commit()
 
+
+def init_message_db(path: Path) -> sqlite3.Connection:
+    """Create (or open) the message database and ensure schema exists.
+
+    Args:
+        path: Path to the SQLite database file.
+
+    Returns:
+        An open sqlite3.Connection with WAL mode enabled.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    init_message_schema(conn)
     return conn

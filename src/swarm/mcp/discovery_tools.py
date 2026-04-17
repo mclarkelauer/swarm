@@ -40,8 +40,7 @@ def swarm_health() -> str:
 
     # Memory count
     if state.memory_api is not None:
-        cur = state.memory_api._conn.execute("SELECT COUNT(*) FROM memory")
-        health["memory_count"] = cur.fetchone()[0]
+        health["memory_count"] = state.memory_api.count()
 
     # Plans directory
     if state.plans_dir:

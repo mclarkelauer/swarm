@@ -9,12 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from swarm._db_pool import ThreadLocalConnectionPool, apply_default_pragmas
 
-def init_experiments_db(path: Path) -> sqlite3.Connection:
-    """Create or open the experiments database."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.execute("PRAGMA journal_mode=WAL")
+
+def init_experiments_schema(conn: sqlite3.Connection) -> None:
+    """Install the experiments schema on a connection. Idempotent."""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS experiments (
@@ -48,6 +47,14 @@ def init_experiments_db(path: Path) -> sqlite3.Connection:
         """
     )
     conn.commit()
+
+
+def init_experiments_db(path: Path) -> sqlite3.Connection:
+    """Create or open the experiments database (single-connection helper)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    apply_default_pragmas(conn)
+    init_experiments_schema(conn)
     return conn
 
 
@@ -63,7 +70,21 @@ class ExperimentAPI:
     """
 
     def __init__(self, db_path: Path) -> None:
-        self._conn = init_experiments_db(db_path)
+        self._db_path = db_path
+        self._pool: ThreadLocalConnectionPool = ThreadLocalConnectionPool(
+            db_path, initializer=init_experiments_schema,
+        )
+        # Eagerly create the schema on the owning thread.
+        self._pool.get()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return the SQLite connection bound to the calling thread."""
+        return self._pool.get()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Backwards-compatible alias for :meth:`_get_conn`."""
+        return self._pool.get()
 
     def create(
         self,
@@ -310,8 +331,8 @@ class ExperimentAPI:
         ]
 
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
-        self._conn.close()
+        """Close every thread-local SQLite connection."""
+        self._pool.close_all()
 
     def __enter__(self) -> ExperimentAPI:
         return self

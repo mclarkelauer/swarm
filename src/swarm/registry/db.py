@@ -7,21 +7,21 @@ import sqlite3
 from pathlib import Path
 
 
-def init_registry_db(path: Path) -> tuple[sqlite3.Connection, bool]:
-    """Create (or open) the registry database and ensure the schema exists.
+def init_registry_schema(conn: sqlite3.Connection) -> bool:
+    """Create the registry schema (tables, FTS index) on an open connection.
+
+    Idempotent — uses ``CREATE ... IF NOT EXISTS`` and suppresses
+    ``OperationalError`` from the additive ALTER TABLE migrations.
 
     Args:
-        path: Path to the SQLite database file.
+        conn: An open SQLite connection.  Default Swarm PRAGMAs (WAL,
+            ``foreign_keys=ON``, etc.) are expected to have already been
+            applied by the caller.
 
     Returns:
-        A tuple of (connection, fts_available) where *fts_available* is
-        ``True`` when the FTS5 extension is compiled into the SQLite build
-        and the full-text index was created successfully.
+        ``True`` when the FTS5 extension is compiled into the SQLite
+        build and the full-text index was created successfully.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agents (
@@ -76,7 +76,29 @@ def init_registry_db(path: Path) -> tuple[sqlite3.Connection, bool]:
     )
     conn.commit()
 
-    fts_available = _init_fts(conn)
+    return _init_fts(conn)
+
+
+def init_registry_db(path: Path) -> tuple[sqlite3.Connection, bool]:
+    """Create (or open) the registry database and ensure the schema exists.
+
+    Kept for backwards compatibility with callers that want a single
+    connection.  New code should use :class:`ThreadLocalConnectionPool`
+    in :mod:`swarm._db_pool` together with :func:`init_registry_schema`.
+
+    Args:
+        path: Path to the SQLite database file.
+
+    Returns:
+        A tuple of (connection, fts_available).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+    fts_available = init_registry_schema(conn)
     return conn, fts_available
 
 

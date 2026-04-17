@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import math
 import re
+import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from swarm.memory.db import init_memory_db
+from swarm._db_pool import ThreadLocalConnectionPool
+from swarm.memory.db import init_memory_schema
 from swarm.memory.models import MemoryEntry
 
 
@@ -48,7 +50,26 @@ class MemoryAPI:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._conn, self._fts_available = init_memory_db(db_path)
+        self._fts_available: bool = False
+
+        def _init(conn: sqlite3.Connection) -> None:
+            available = init_memory_schema(conn)
+            self._fts_available = self._fts_available or available
+
+        self._pool: ThreadLocalConnectionPool = ThreadLocalConnectionPool(
+            db_path, initializer=_init,
+        )
+        # Force schema creation and FTS detection on the owning thread.
+        self._pool.get()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return the SQLite connection bound to the calling thread."""
+        return self._pool.get()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Backwards-compatible alias for :meth:`_get_conn`."""
+        return self._pool.get()
 
     # ------------------------------------------------------------------
     # helpers
@@ -431,9 +452,28 @@ class MemoryAPI:
         self._conn.commit()
         return cur.rowcount
 
+    def count(self, agent_name: str | None = None) -> int:
+        """Return the number of stored memories.
+
+        Args:
+            agent_name: Optional filter — count only this agent's memories.
+
+        Returns:
+            Number of rows in the ``memory`` table matching the filter.
+        """
+        if agent_name is None:
+            cur = self._get_conn().execute("SELECT COUNT(*) FROM memory")
+        else:
+            cur = self._get_conn().execute(
+                "SELECT COUNT(*) FROM memory WHERE agent_name = ?",
+                (agent_name,),
+            )
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
-        self._conn.close()
+        """Close every thread-local SQLite connection."""
+        self._pool.close_all()
 
     def __enter__(self) -> MemoryAPI:
         return self

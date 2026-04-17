@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from swarm._db_pool import ThreadLocalConnectionPool
 from swarm.errors import RegistryError
-from swarm.registry.db import init_registry_db
+from swarm.registry.db import init_registry_schema
 from swarm.registry.models import AgentDefinition
 
 
@@ -44,7 +46,36 @@ class RegistryAPI:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._conn, self._fts_available = init_registry_db(db_path)
+        # FTS5 availability is detected once on the first connection
+        # (cached on the pool initializer), then reused across threads.
+        self._fts_available: bool = False
+
+        def _init(conn: sqlite3.Connection) -> None:
+            available = init_registry_schema(conn)
+            # Cache the first observation; FTS availability cannot
+            # change between connections to the same SQLite build.
+            self._fts_available = self._fts_available or available
+
+        self._pool: ThreadLocalConnectionPool = ThreadLocalConnectionPool(
+            db_path, initializer=_init,
+        )
+        # Touch the pool to force schema creation and FTS detection now
+        # rather than lazily on the first query.
+        self._pool.get()
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Return the SQLite connection bound to the calling thread."""
+        return self._pool.get()
+
+    @property
+    def _conn(self) -> sqlite3.Connection:
+        """Backwards-compatible alias for :meth:`_get_conn`.
+
+        Older call sites (catalog seeding, tests) read ``api._conn``
+        directly.  Routing through the thread-local pool keeps those
+        sites thread-safe without API changes.
+        """
+        return self._pool.get()
 
     # ------------------------------------------------------------------
     # helpers
@@ -572,9 +603,19 @@ class RegistryAPI:
         result["provenance_chain"] = chain
         return result
 
+    def count(self) -> int:
+        """Return the total number of agent definitions stored.
+
+        Public alternative to ``len(api.list_agents())`` that avoids
+        materializing every row.
+        """
+        cur = self._get_conn().execute("SELECT COUNT(*) FROM agents")
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
-        """Close the underlying SQLite connection."""
-        self._conn.close()
+        """Close every thread-local SQLite connection."""
+        self._pool.close_all()
 
     def __enter__(self) -> RegistryAPI:
         return self

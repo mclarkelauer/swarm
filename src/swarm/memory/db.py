@@ -7,20 +7,18 @@ import sqlite3
 from pathlib import Path
 
 
-def init_memory_db(path: Path) -> tuple[sqlite3.Connection, bool]:
-    """Create (or open) the memory database and ensure schema exists.
+def init_memory_schema(conn: sqlite3.Connection) -> bool:
+    """Install the memory schema (tables, indexes, FTS) on a connection.
+
+    Idempotent — safe to call repeatedly.
 
     Args:
-        path: Path to the SQLite database file.
+        conn: An open SQLite connection.  Default Swarm PRAGMAs are
+            expected to have already been applied by the caller.
 
     Returns:
-        Tuple of (connection, fts_available).
+        ``True`` when FTS5 is available and the index was set up.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS memory (
@@ -66,9 +64,26 @@ def init_memory_db(path: Path) -> tuple[sqlite3.Connection, bool]:
 
     conn.commit()
 
-    # Optional FTS5 for content search
-    fts_available = _init_memory_fts(conn)
+    return _init_memory_fts(conn)
 
+
+def init_memory_db(path: Path) -> tuple[sqlite3.Connection, bool]:
+    """Create (or open) the memory database and ensure schema exists.
+
+    Args:
+        path: Path to the SQLite database file.
+
+    Returns:
+        Tuple of (connection, fts_available).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
+
+    fts_available = init_memory_schema(conn)
     return conn, fts_available
 
 
