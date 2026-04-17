@@ -11,16 +11,12 @@ from swarm.errors import PlanError
 from swarm.mcp import state
 from swarm.mcp.plan_tools import plan_template_instantiate, plan_template_list
 from swarm.plan.templates import (
-    BUILTIN_TEMPLATES_DIR,
-    USER_TEMPLATES_DIR,
     _safe_interpolate,
     instantiate_template,
     list_template_params,
     list_templates,
     load_template,
-    load_templates,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

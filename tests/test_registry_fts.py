@@ -13,7 +13,6 @@ from swarm.mcp.registry_tools import registry_search_ranked
 from swarm.registry.api import RegistryAPI, _sanitize_fts_query
 from swarm.registry.db import _init_fts, init_registry_db
 
-
 # ---------------------------------------------------------------------------
 # _sanitize_fts_query
 # ---------------------------------------------------------------------------

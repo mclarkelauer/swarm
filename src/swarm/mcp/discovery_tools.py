@@ -50,6 +50,18 @@ def swarm_health() -> str:
     if state.memory_api is not None:
         health["memory_count"] = state.memory_api.count()
 
+    # Inter-agent message bus count
+    if state.message_api is not None:
+        health["message_count"] = state.message_api.count()
+
+    # A/B experiment count
+    if state.experiment_api is not None:
+        health["experiment_count"] = state.experiment_api.count()
+
+    # Shared context (blackboard) count
+    if state.context_api is not None:
+        health["context_count"] = state.context_api.count()
+
     # Plans directory
     if state.plans_dir:
         from pathlib import Path

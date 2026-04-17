@@ -7,13 +7,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from swarm.plan.conditions import evaluate_condition, validate_condition
 from swarm.plan.executor import RunState, handle_loop
 from swarm.plan.models import LoopConfig, Plan, PlanStep
 from swarm.plan.run_log import RunLog, write_run_log
-
 
 # ---------------------------------------------------------------------------
 # Helpers

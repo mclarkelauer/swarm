@@ -211,3 +211,26 @@ class TestRoundTrip:
         assert msg["content"] == "found 3 bugs"
         assert msg["message_type"] == "request"
         assert msg["step_id"] == "audit"
+
+
+class TestAllMessageTypesSupported:
+    """Round 5 follow-up: every advertised type must succeed end-to-end.
+
+    The MCP tool layer must never raise; pre-fix, negotiation types
+    bubbled :class:`sqlite3.IntegrityError` out of agent_send_message.
+    """
+
+    @pytest.mark.parametrize(
+        "msg_type",
+        ["request", "response", "broadcast", "proposal", "counter", "accept", "reject"],
+    )
+    def test_send_returns_ok_for_every_type(self, msg_type: str) -> None:
+        result = json.loads(
+            agent_send_message(
+                "alice", "bob", f"hello-{msg_type}",
+                run_id="r1", message_type=msg_type,
+            )
+        )
+        assert "error" not in result, result
+        assert result["ok"] is True
+        assert result["message"]["content"] == f"hello-{msg_type}"

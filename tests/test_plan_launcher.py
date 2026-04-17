@@ -12,7 +12,6 @@ import pytest
 from swarm.errors import ExecutionError
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
 
-
 # ---------------------------------------------------------------------------
 # find_claude_binary
 # ---------------------------------------------------------------------------

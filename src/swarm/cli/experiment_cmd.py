@@ -146,6 +146,25 @@ def end(experiment_name: str) -> None:
         raise SystemExit(1)
 
 
+@experiment.command("assign")
+@click.argument("experiment_name")
+def assign(experiment_name: str) -> None:
+    """Assign a variant for one invocation of an experiment.
+
+    Mirrors the ``experiment_assign_variant`` MCP tool so orchestrators
+    operating from a shell can route traffic without an active Claude
+    session.  Prints the resolved ``variant`` (``A`` or ``B``) and the
+    selected agent name on stdout.
+    """
+    with open_experiments() as api:
+        try:
+            agent, variant = api.resolve_variant(experiment_name)
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            raise SystemExit(1) from exc
+    click.echo(f"{variant}\t{agent}")
+
+
 @experiment.command("record")
 @click.argument("experiment_name")
 @click.option("--variant", required=True, type=click.Choice(["A", "B"]), help="Variant to record against.")

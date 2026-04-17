@@ -10,7 +10,12 @@ requires-python = ">=3.12"
 dependencies = [
     "click>=8.1",
     "structlog>=24.0",
-    "mcp[cli]>=1.0",
+    # mcp[cli] pin range — ``swarm.mcp.__init__.list_tools`` falls back
+    # to ``FastMCP._tool_manager`` when invoked inside an event loop.
+    # That attribute is private; pinning the major version means a
+    # silent FastMCP rename can't take down the health surface without
+    # showing up in CI.
+    "mcp[cli]>=1.0,<2.0",
     "rich>=13.0",
 ]
 

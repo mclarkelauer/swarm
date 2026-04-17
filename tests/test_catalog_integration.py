@@ -22,7 +22,6 @@ from swarm.catalog.seed import (
 from swarm.plan.templates import BUILTIN_TEMPLATES_DIR
 from swarm.registry.api import RegistryAPI
 
-
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
@@ -571,7 +570,7 @@ class TestFullTemplateResolution:
                     missing.append(f"{template_path.stem}::{agent_type}")
 
         assert not missing, (
-            f"Template agent_types not found in catalog:\n" + "\n".join(missing)
+            "Template agent_types not found in catalog:\n" + "\n".join(missing)
         )
 
 

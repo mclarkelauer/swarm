@@ -77,8 +77,8 @@ class TestRenderMermaid:
         result = render_mermaid(plan)
         # b is blocked (a not completed); a is ready
         lines = result.split("\n")
-        b_style = [l for l in lines if l.strip().startswith("style b")]
-        assert any("fill:#6c757d" in l for l in b_style)
+        b_style = [line for line in lines if line.strip().startswith("style b")]
+        assert any("fill:#6c757d" in line for line in b_style)
 
     def test_checkpoint_step_blue(self) -> None:
         plan = _plan(
@@ -95,8 +95,8 @@ class TestRenderMermaid:
         result = render_mermaid(plan)
         # chk is blocked because a is not completed
         lines = result.split("\n")
-        chk_style = [l for l in lines if l.strip().startswith("style chk")]
-        assert any("fill:#6c757d" in l for l in chk_style)
+        chk_style = [line for line in lines if line.strip().startswith("style chk")]
+        assert any("fill:#6c757d" in line for line in chk_style)
 
     def test_condition_label_on_edge(self) -> None:
         plan = _plan(
@@ -208,7 +208,7 @@ class TestRenderAscii:
         data_lines = lines[2:]
         # Should be waves 0, 1, 2
         assert len(data_lines) == 3
-        wave_numbers = [l.strip()[0] for l in data_lines]
+        wave_numbers = [line.strip()[0] for line in data_lines]
         assert wave_numbers == ["0", "1", "2"]
 
     def test_diamond_two_steps_same_wave(self) -> None:
@@ -255,7 +255,10 @@ class TestRenderAscii:
         result = render_ascii(plan)
         # The b row should show "a" in depends column
         lines = result.strip().split("\n")
-        b_line = [l for l in lines if "  b  " in l or l.strip().startswith("1")][0]
+        b_line = [
+            line for line in lines
+            if "  b  " in line or line.strip().startswith("1")
+        ][0]
         assert "a" in b_line
 
     def test_no_deps_shown_as_dash(self) -> None:

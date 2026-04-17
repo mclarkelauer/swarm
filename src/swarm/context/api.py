@@ -147,6 +147,16 @@ class SharedContextAPI:
         self._conn.commit()
         return cur.rowcount
 
+    def count(self) -> int:
+        """Return the number of stored context entries across all runs.
+
+        Returns:
+            Number of rows in the ``context`` table.
+        """
+        cur = self._get_conn().execute("SELECT COUNT(*) FROM context")
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
         """Close every thread-local SQLite connection."""
         self._pool.close_all()

@@ -227,6 +227,47 @@ class TestExperimentEnd:
         assert "No active experiment" in result.output
 
 
+class TestExperimentAssign:
+    def test_assign_returns_variant_and_agent(
+        self, runner: CliRunner, _mock_config: SwarmConfig,
+    ) -> None:
+        runner.invoke(
+            cli,
+            [
+                "experiment", "create",
+                "--name", "asg",
+                "--agent-a", "agent-a-name",
+                "--agent-b", "agent-b-name",
+            ],
+        )
+        result = runner.invoke(cli, ["experiment", "assign", "asg"])
+        assert result.exit_code == 0, result.output
+        # Output is "<variant>\t<agent>"
+        line = result.output.strip()
+        assert "\t" in line
+        variant, agent = line.split("\t", 1)
+        assert variant in ("A", "B")
+        assert agent in ("agent-a-name", "agent-b-name")
+        if variant == "A":
+            assert agent == "agent-a-name"
+        else:
+            assert agent == "agent-b-name"
+
+    def test_assign_unknown_experiment_errors(
+        self, runner: CliRunner, _mock_config: SwarmConfig,
+    ) -> None:
+        result = runner.invoke(cli, ["experiment", "assign", "nonexistent"])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_assign_visible_in_help(
+        self, runner: CliRunner, _mock_config: SwarmConfig,
+    ) -> None:
+        result = runner.invoke(cli, ["experiment", "--help"])
+        assert result.exit_code == 0
+        assert "assign" in result.output
+
+
 class TestExperimentRoundTrip:
     def test_create_record_results_end(
         self, runner: CliRunner, _mock_config: SwarmConfig,

@@ -53,7 +53,8 @@ def agent_send_message(
         content: Message content (freeform text or JSON string).
         step_id: Optional step ID that produced this message.
         run_id: Plan run identifier (from the run log).
-        message_type: One of 'request', 'response', 'broadcast'.
+        message_type: One of 'request', 'response', 'broadcast',
+            'proposal', 'counter', 'accept', 'reject'.
 
     Returns:
         JSON ``{"ok": true, "message": {...}}`` with the persisted message,

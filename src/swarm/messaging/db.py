@@ -7,6 +7,76 @@ import sqlite3
 from pathlib import Path
 
 
+def _migrate_drop_message_type_check(conn: sqlite3.Connection) -> None:
+    """Drop the legacy ``CHECK (message_type IN (...))`` constraint, if present.
+
+    Round 5 added negotiation message types (``proposal``, ``counter``,
+    ``accept``, ``reject``) on the validator side but left the original
+    schema's three-value CHECK constraint in place, so the new types
+    raised :class:`sqlite3.IntegrityError` at insert time.
+
+    SQLite has no ``ALTER TABLE DROP CONSTRAINT``, so we detect the old
+    constraint by inspecting ``sqlite_master`` and, if found, recreate
+    the table without it inside a single transaction:
+
+      1. Rename the old table to ``messages_old``.
+      2. Create the new ``messages`` table without the CHECK clause.
+      3. Copy every row over (column lists are identical).
+      4. Drop ``messages_old``.
+
+    This function is idempotent — once the constraint is gone the
+    schema definition no longer contains ``CHECK (message_type``, so the
+    detection path skips the rebuild on subsequent calls.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+    ).fetchone()
+    if row is None:
+        return
+    create_sql = row[0] or ""
+    if "CHECK (message_type" not in create_sql:
+        return
+
+    # Discover the live column list so the rebuild preserves any
+    # previously-applied ALTER TABLE additions (in_reply_to, read_at).
+    cols_info = conn.execute("PRAGMA table_info(messages)").fetchall()
+    col_names = [str(row[1]) for row in cols_info]
+    col_list = ", ".join(col_names)
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("ALTER TABLE messages RENAME TO messages_old")
+        conn.execute(
+            """
+            CREATE TABLE messages (
+                id          TEXT PRIMARY KEY,
+                from_agent  TEXT NOT NULL,
+                to_agent    TEXT NOT NULL,
+                step_id     TEXT NOT NULL DEFAULT '',
+                run_id      TEXT NOT NULL DEFAULT '',
+                content     TEXT NOT NULL DEFAULT '',
+                message_type TEXT NOT NULL DEFAULT 'response',
+                created_at  TEXT NOT NULL DEFAULT '',
+                in_reply_to TEXT NOT NULL DEFAULT '',
+                read_at     TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        # Bring rows across.  Use the column list discovered above so
+        # any subset of columns survives — extras default to ''.
+        conn.execute(
+            f"INSERT INTO messages ({col_list}) "
+            f"SELECT {col_list} FROM messages_old"
+        )
+        conn.execute("DROP TABLE messages_old")
+        # Indexes were dropped with the rename — recreate below.
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    else:
+        conn.commit()
+
+
 def init_message_schema(conn: sqlite3.Connection) -> None:
     """Install the messaging schema (tables, indexes) on a connection.
 
@@ -25,11 +95,17 @@ def init_message_schema(conn: sqlite3.Connection) -> None:
             step_id     TEXT NOT NULL DEFAULT '',
             run_id      TEXT NOT NULL DEFAULT '',
             content     TEXT NOT NULL DEFAULT '',
-            message_type TEXT NOT NULL DEFAULT 'response'
-                CHECK (message_type IN ('request', 'response', 'broadcast')),
+            message_type TEXT NOT NULL DEFAULT 'response',
             created_at  TEXT NOT NULL DEFAULT ''
         );
+        """
+    )
+    # Drop the legacy CHECK constraint, if a pre-Round-5 database is
+    # being opened.  Idempotent and only does work on outdated schemas.
+    _migrate_drop_message_type_check(conn)
 
+    conn.executescript(
+        """
         CREATE INDEX IF NOT EXISTS idx_messages_run_to_agent
             ON messages(run_id, to_agent);
 

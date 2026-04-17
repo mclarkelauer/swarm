@@ -10,7 +10,6 @@ import pytest
 from swarm.mcp import state
 from swarm.mcp.plan_tools import plan_amend, plan_patch_step
 
-
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
 # ---------------------------------------------------------------------------

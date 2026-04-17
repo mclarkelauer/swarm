@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-from swarm.memory.api import MemoryAPI
 from swarm.mcp import state
 from swarm.mcp.memory_tools import (
     memory_forget,
@@ -18,6 +17,7 @@ from swarm.mcp.memory_tools import (
     memory_reinforce,
     memory_store,
 )
+from swarm.memory.api import MemoryAPI
 
 
 @pytest.fixture(autouse=True)

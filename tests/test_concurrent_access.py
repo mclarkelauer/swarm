@@ -11,6 +11,7 @@ can only be used in that same thread") or data corruption.
 
 from __future__ import annotations
 
+import gc
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -377,20 +378,29 @@ def test_close_closes_all_per_thread_connections(
     factory: object,
     tmp_path: Path,
 ) -> None:
-    """``close()`` must drain the pool's tracked connections."""
+    """``close()`` plus per-thread finalizers must drain the pool.
+
+    Round 5 follow-up: every connection handed out by ``get()`` is now
+    paired with a ``weakref.finalize`` keyed on the calling thread, so
+    worker threads that exit without ``close_all`` being called still
+    release their handle (preventing the 178 ResourceWarnings the
+    earlier hardening pass missed).  The combination — eager
+    finalizers for worker threads + ``close_all`` for the owning
+    thread — must leave the tracked set empty.
+    """
     api = factory(tmp_path)  # type: ignore[operator]
     try:
         _open_in_threads(api, n=4)
-
-        # Sanity: pool tracks at least the worker connections + the
-        # one created in the constructor on the main thread.
-        # (Exact count can vary if threads are reused, so just assert
-        # ``>= 2`` to confirm we tracked multiple connections.)
-        assert api._pool.open_count() >= 2  # type: ignore[attr-defined]
+        # Worker threads have exited; their finalizers may already have
+        # closed and deregistered those connections.  At minimum the
+        # owning thread's connection is still tracked.
+        gc.collect()
+        assert api._pool.open_count() >= 1  # type: ignore[attr-defined]
     finally:
         api.close()
 
     # After close, the tracked set is empty.
+    gc.collect()
     assert api._pool.open_count() == 0  # type: ignore[attr-defined]
 
     # And subsequent operations now raise (use-after-close surfaces

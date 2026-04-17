@@ -8,6 +8,50 @@ All notable changes to Swarm are documented here. Format follows
 
 Round 5 hardening pass plus new docs and examples.
 
+### Round 5 follow-up: critic fixes
+
+Fixes from the Round 5 integration critic — the ten residual HIGH/
+MEDIUM/LOW issues spotted after the original hardening commit.
+
+- **HIGH** `agent_send_message` no longer raises
+  `sqlite3.IntegrityError` for negotiation message types
+  (`proposal`, `counter`, `accept`, `reject`).  The SQLite
+  `CHECK (message_type IN (...))` constraint is dropped via an
+  idempotent migration that detects the legacy schema in
+  `sqlite_master` and rebuilds the table without the clause.  Docs
+  in `docs/messaging.md` are now backed by working code.
+- **HIGH** `ThreadLocalConnectionPool` registers a
+  `weakref.finalize` per worker thread so SQLite handles are closed
+  when the thread dies, not when the interpreter exits.  Connections
+  use `check_same_thread=False` so the finalizer can run on any
+  thread.  Test suite ResourceWarnings dropped from 178 to 0.
+- **MEDIUM** `experiment_tools._get_experiment_api()` now asserts on
+  the canonical `state.experiment_api` instead of silently spinning
+  up a second on-disk database in `plans_dir`.  Mirrors the
+  `memory_tools` / `forge_tools` pattern.
+- **MEDIUM** `experiments.db` lives at `base_dir / experiments.db`
+  for both the MCP server and every CLI command — the lazy
+  `plans_dir / experiments.db` divergence is gone, with a comment
+  in `cli/_helpers.get_experiments` documenting the canonical path.
+- **MEDIUM** `swarm_health` exposes `message_count`,
+  `experiment_count`, and `context_count` alongside the existing
+  agent / memory / tool counts; `ExperimentAPI.count` and
+  `SharedContextAPI.count` were added to back the new fields.
+- **MEDIUM** `tests/conftest.py:assert_no_db_leak` lifts the
+  `SWARM_SKIP_LEAK_CHECK` env-var check above the snapshot so a
+  `return` no longer sits inside `finally` (ruff B012).
+- **MEDIUM** `mcp/__init__.list_tools()` now drives FastMCP's public
+  async `list_tools()` whenever no event loop is running and only
+  falls back to the private `_tool_manager` from inside an active
+  loop.  `pyproject.toml` pins `mcp[cli]` to `>=1.0,<2.0` so a
+  silent FastMCP rename can't break the health surface.
+- **LOW** `swarm experiment assign <name>` CLI subcommand mirrors
+  the `experiment_assign_variant` MCP tool for shell-based
+  orchestration.
+- **LOW** 36 auto-fixable lint errors across `tests/` cleared via
+  `ruff check --fix`, plus targeted manual fixes for the
+  remaining E741 / B017 / F841 reports.
+
 ### Added
 
 - `examples/` directory with three runnable scenarios

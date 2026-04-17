@@ -7,17 +7,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from swarm.plan.executor import (
     RunState,
     execute_foreground,
     execute_plan,
-    record_failure,
 )
 from swarm.plan.models import Plan, PlanStep, RetryConfig
-from swarm.plan.run_log import RunLog, load_run_log, write_run_log
-
+from swarm.plan.run_log import RunLog, write_run_log
 
 # ---------------------------------------------------------------------------
 # Helpers

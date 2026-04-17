@@ -15,7 +15,6 @@ from swarm.plan.models import Plan, PlanStep
 from swarm.plan.parser import validate_tool_policies
 from swarm.registry.models import AgentDefinition
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

@@ -15,7 +15,6 @@ from swarm.plan.models import Plan, PlanStep
 from swarm.plan.run_log import RunLog, StepOutcome, write_run_log
 from swarm.registry.api import RegistryAPI
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -284,8 +283,7 @@ class TestAnnotateFromRunAllSuccess:
         log_file = _make_run_log(tmp_path, plan_file, [_outcome("s1", "completed")])
 
         # First run
-        result1 = json.loads(forge_annotate_from_run(str(log_file)))
-        first_new_id = result1["annotated"][0]["new_id"]
+        json.loads(forge_annotate_from_run(str(log_file)))
 
         # Create a second run log pointing at the same plan
         log2 = RunLog(

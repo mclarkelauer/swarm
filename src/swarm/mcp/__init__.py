@@ -10,6 +10,8 @@ release as new tools are added.
 
 from __future__ import annotations
 
+import asyncio
+
 
 def _ensure_tools_registered() -> None:
     """Import every tool module so FastMCP sees their ``@mcp.tool`` calls.
@@ -43,10 +45,19 @@ def list_tools() -> list[str]:
     _ensure_tools_registered()
     from swarm.mcp.instance import mcp
 
-    # FastMCP exposes its registry via a private ``_tool_manager``; the
-    # ``list_tools()`` method on the manager is synchronous (the
-    # public ``mcp.list_tools()`` is async and returns ``mcp.types.Tool``
-    # objects).  Both forms yield the same set of names.
+    # FastMCP's public ``list_tools()`` is an async coroutine that
+    # returns ``mcp.types.Tool`` objects with a stable ``name`` field.
+    # Drive it with ``asyncio.run`` when no loop is running; otherwise
+    # fall back to the private ``_tool_manager.list_tools()`` (sync)
+    # so this helper is safe to call from within an active event loop.
+    # The mcp[cli] dependency is pinned to ``>=1.0,<2.0`` in
+    # ``pyproject.toml`` so the private path remains a tested escape
+    # valve instead of an unbounded API risk.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        tools = asyncio.run(mcp.list_tools())
+        return [t.name for t in tools]
     return [t.name for t in mcp._tool_manager.list_tools()]
 
 

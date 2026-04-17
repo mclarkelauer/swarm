@@ -12,7 +12,6 @@ import json
 
 from swarm.mcp import count_tools, list_tools
 
-
 # Floor for the tool count.  Bump this whenever you intentionally add a
 # new MCP tool.  The assertion uses ``>=`` so adding tools never breaks
 # the test — only removing one (or losing one to a registration bug)

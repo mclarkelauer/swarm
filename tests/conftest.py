@@ -47,14 +47,19 @@ def assert_no_db_leak() -> Iterator[None]:
     The check runs ``gc.collect()`` before snapshotting so finalizable
     objects are accounted for.
     """
+    if os.environ.get("SWARM_SKIP_LEAK_CHECK") == "1":
+        # Honour the CI escape hatch before doing anything else so a
+        # ``return`` inside ``finally`` doesn't silence test exceptions
+        # (ruff B012).
+        yield
+        return
+
     gc.collect()
     before = _live_sqlite_connections()
     try:
         yield
     finally:
         gc.collect()
-        if os.environ.get("SWARM_SKIP_LEAK_CHECK") == "1":
-            return
         after = _live_sqlite_connections()
         leaked = after - before
         assert leaked <= 0, (

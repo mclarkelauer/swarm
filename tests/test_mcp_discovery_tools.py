@@ -8,11 +8,14 @@ from pathlib import Path
 
 import pytest
 
+from swarm.context.api import SharedContextAPI
+from swarm.experiments.api import ExperimentAPI
 from swarm.forge.api import ForgeAPI
 from swarm.mcp import state
 from swarm.mcp.discovery_tools import swarm_discover, swarm_health
 from swarm.mcp.forge_tools import forge_create
 from swarm.memory.api import MemoryAPI
+from swarm.messaging.api import MessageAPI
 from swarm.registry.api import RegistryAPI
 
 
@@ -194,3 +197,81 @@ class TestSwarmDiscoverReturnType:
         forge_create("solo-agent", "Only agent.")
         result = json.loads(swarm_discover())
         assert len(result) == 1
+
+
+class TestSwarmHealthCounts:
+    """Round 5 follow-up: ``swarm_health`` exposes counts for every
+    persistence subsystem so dashboards aren't asymmetric.
+
+    Asserts presence and basic correctness of:
+        agent_count, memory_count, message_count,
+        experiment_count, context_count, tool_count.
+    """
+
+    @pytest.fixture()
+    def _full_state(self, tmp_path: Path) -> Iterator[None]:
+        # Augment the autouse registry/forge fixture with the four
+        # additional APIs the count surface requires.
+        state.memory_api = MemoryAPI(tmp_path / "memory.db")
+        state.message_api = MessageAPI(tmp_path / "messages.db")
+        state.experiment_api = ExperimentAPI(tmp_path / "experiments.db")
+        state.context_api = SharedContextAPI(tmp_path / "context.db")
+        try:
+            yield
+        finally:
+            assert state.memory_api is not None
+            state.memory_api.close()
+            state.memory_api = None
+            assert state.message_api is not None
+            state.message_api.close()
+            state.message_api = None
+            assert state.experiment_api is not None
+            state.experiment_api.close()
+            state.experiment_api = None
+            assert state.context_api is not None
+            state.context_api.close()
+            state.context_api = None
+
+    def test_health_emits_all_five_counts(self, _full_state: None) -> None:
+        result = json.loads(swarm_health())
+        for key in (
+            "agent_count",
+            "memory_count",
+            "message_count",
+            "experiment_count",
+            "context_count",
+            "tool_count",
+        ):
+            assert key in result, f"swarm_health missing {key!r}: {result!r}"
+            assert isinstance(result[key], int)
+
+    def test_counts_reflect_inserted_rows(self, _full_state: None) -> None:
+        # Insert one of each — counts should follow.
+        forge_create("a-agent", "Prompt.")
+        assert state.memory_api is not None
+        state.memory_api.store(agent_name="a-agent", content="m", memory_type="episodic")
+        assert state.message_api is not None
+        state.message_api.send("a", "b", "hello", run_id="r1")
+        assert state.experiment_api is not None
+        state.experiment_api.create("exp", "v1", "v2")
+        assert state.context_api is not None
+        state.context_api.set("r1", "key", "value", set_by="a-agent")
+
+        result = json.loads(swarm_health())
+        assert result["agent_count"] == 1
+        assert result["memory_count"] == 1
+        assert result["message_count"] == 1
+        assert result["experiment_count"] == 1
+        assert result["context_count"] == 1
+
+    def test_counts_omitted_when_apis_missing(self) -> None:
+        # The autouse fixture sets only registry_api and forge_api, so
+        # the partial state should still produce a valid response with
+        # only agent_count and tool_count populated.
+        result = json.loads(swarm_health())
+        assert "agent_count" in result
+        assert "tool_count" in result
+        assert "memory_count" not in result
+        assert "message_count" not in result
+        assert "experiment_count" not in result
+        assert "context_count" not in result

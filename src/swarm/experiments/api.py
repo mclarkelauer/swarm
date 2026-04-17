@@ -330,6 +330,16 @@ class ExperimentAPI:
             for row in cur.fetchall()
         ]
 
+    def count(self) -> int:
+        """Return the number of stored experiments.
+
+        Returns:
+            Number of rows in the ``experiments`` table.
+        """
+        cur = self._get_conn().execute("SELECT COUNT(*) FROM experiments")
+        row = cur.fetchone()
+        return int(row[0]) if row else 0
+
     def close(self) -> None:
         """Close every thread-local SQLite connection."""
         self._pool.close_all()

@@ -5,8 +5,6 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-import pytest
-
 from swarm.messaging.db import init_message_db
 
 
@@ -95,21 +93,28 @@ class TestInitMessageDb:
         assert row[0] == "hello"
         conn.close()
 
-    def test_check_constraint_rejects_invalid_type(self, tmp_path: Path) -> None:
-        conn = init_message_db(tmp_path / "messages.db")
-        try:
-            with pytest.raises(sqlite3.IntegrityError):
-                conn.execute(
-                    "INSERT INTO messages (id, from_agent, to_agent, message_type) "
-                    "VALUES (?, ?, ?, ?)",
-                    ("id1", "a", "b", "invalid_type"),
-                )
-        finally:
-            conn.close()
+    def test_no_check_constraint_on_message_type(self, tmp_path: Path) -> None:
+        """Round 5 follow-up: schema must not constrain message_type values.
 
-    def test_check_constraint_allows_valid_types(self, tmp_path: Path) -> None:
+        Negotiation types (proposal, counter, accept, reject) are validated
+        in the MCP tool layer; the SQL schema imposes no whitelist so new
+        types can be added without a migration.
+        """
         conn = init_message_db(tmp_path / "messages.db")
-        for i, msg_type in enumerate(("request", "response", "broadcast")):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert "CHECK (message_type" not in (row[0] or "")
+
+    def test_all_message_types_allowed(self, tmp_path: Path) -> None:
+        conn = init_message_db(tmp_path / "messages.db")
+        msg_types = (
+            "request", "response", "broadcast",
+            "proposal", "counter", "accept", "reject",
+        )
+        for i, msg_type in enumerate(msg_types):
             conn.execute(
                 "INSERT INTO messages (id, from_agent, to_agent, message_type) "
                 "VALUES (?, ?, ?, ?)",
@@ -117,5 +122,52 @@ class TestInitMessageDb:
             )
         conn.commit()
         count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
-        assert count == 3
+        assert count == len(msg_types)
+        conn.close()
+
+    def test_legacy_schema_migrates_to_unconstrained(self, tmp_path: Path) -> None:
+        """Round 5 follow-up: old databases with the CHECK clause must
+        migrate transparently when reopened."""
+        db_path = tmp_path / "messages.db"
+        # Hand-craft a pre-migration database with the legacy constraint.
+        legacy = sqlite3.connect(str(db_path))
+        legacy.executescript(
+            """
+            CREATE TABLE messages (
+                id          TEXT PRIMARY KEY,
+                from_agent  TEXT NOT NULL,
+                to_agent    TEXT NOT NULL,
+                step_id     TEXT NOT NULL DEFAULT '',
+                run_id      TEXT NOT NULL DEFAULT '',
+                content     TEXT NOT NULL DEFAULT '',
+                message_type TEXT NOT NULL DEFAULT 'response'
+                    CHECK (message_type IN ('request', 'response', 'broadcast')),
+                created_at  TEXT NOT NULL DEFAULT ''
+            );
+            """
+        )
+        legacy.execute(
+            "INSERT INTO messages (id, from_agent, to_agent, message_type) "
+            "VALUES ('keep', 'a', 'b', 'request')"
+        )
+        legacy.commit()
+        legacy.close()
+
+        # Reopening through init_message_db should migrate the table.
+        conn = init_message_db(db_path)
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+        ).fetchone()
+        assert row is not None
+        assert "CHECK (message_type" not in (row[0] or "")
+        # Pre-existing rows preserved.
+        assert conn.execute(
+            "SELECT id FROM messages WHERE id='keep'"
+        ).fetchone() is not None
+        # New negotiation type now accepted.
+        conn.execute(
+            "INSERT INTO messages (id, from_agent, to_agent, message_type) "
+            "VALUES ('prop', 'a', 'b', 'proposal')"
+        )
+        conn.commit()
         conn.close()

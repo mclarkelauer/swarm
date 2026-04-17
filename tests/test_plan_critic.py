@@ -17,9 +17,8 @@ from swarm.plan.executor import (
     execute_foreground,
     run_critic_loop,
 )
-from swarm.plan.models import Plan, PlanStep, RetryConfig
+from swarm.plan.models import Plan, PlanStep
 from swarm.plan.run_log import RunLog, write_run_log
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,8 +198,6 @@ class TestRunCriticLoop:
 
         verdict_path = rs.artifacts_dir / "output.md.verdict.json"
         call_count = 0
-
-        original_wait = _mock_popen(exit_code=0).wait
 
         def _launch_side_effect(*args: Any, **kwargs: Any) -> MagicMock:
             nonlocal call_count

@@ -12,7 +12,6 @@ from swarm.mcp.plan_tools import plan_execute_step
 from swarm.plan.models import FanOutBranch, FanOutConfig, Plan, PlanStep
 from swarm.plan.parser import validate_plan
 
-
 # ---------------------------------------------------------------------------
 # FanOutBranch tests
 # ---------------------------------------------------------------------------

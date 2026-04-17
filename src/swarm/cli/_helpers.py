@@ -58,6 +58,12 @@ def get_experiments() -> ExperimentAPI:
 
     Caller is responsible for ``close()``.  Prefer
     :func:`open_experiments` as a context manager.
+
+    Note:
+        ``base_dir / "experiments.db"`` is the canonical location for
+        the experiments database — both ``swarm.mcp.server.main()`` and
+        every CLI helper resolve to the same path so the MCP server and
+        CLI see one shared experiment registry.
     """
     config = load_config()
     ensure_base_dir(config.base_dir)

@@ -56,7 +56,10 @@ class TestFormatMemoriesForPrompt:
         # At least one entry should be included, but not all three
         lines = result.strip().split("\n")
         # Remove the wrapper tags
-        content_lines = [l for l in lines if not l.startswith("<") and not l.startswith("</")]
+        content_lines = [
+            line for line in lines
+            if not line.startswith("<") and not line.startswith("</")
+        ]
         assert len(content_lines) < 3
 
     def test_format_type_labels(self) -> None:

@@ -13,7 +13,6 @@ from swarm.cli.main import cli
 from swarm.config import SwarmConfig
 from swarm.dirs import ensure_base_dir
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

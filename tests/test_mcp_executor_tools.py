@@ -7,8 +7,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from swarm.mcp.executor_tools import (
     plan_run,
     plan_run_cancel,
@@ -17,7 +15,6 @@ from swarm.mcp.executor_tools import (
 )
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.run_log import RunLog, StepOutcome, load_run_log, write_run_log
-
 
 # ---------------------------------------------------------------------------
 # Helpers

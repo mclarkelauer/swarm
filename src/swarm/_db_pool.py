@@ -17,11 +17,15 @@ and calling :meth:`close_all` when the API is closed.
 from __future__ import annotations
 
 import contextlib
+import logging
 import sqlite3
 import threading
+import weakref
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 def apply_default_pragmas(conn: sqlite3.Connection) -> None:
@@ -83,6 +87,32 @@ class ThreadLocalConnectionPool:
     def db_path(self) -> Path:
         return self._db_path
 
+    @staticmethod
+    def _safe_close(conn: sqlite3.Connection) -> None:
+        """Close ``conn`` swallowing — and logging — any failure.
+
+        Used by both :meth:`close_all` and the per-thread
+        :func:`weakref.finalize` callback installed by :meth:`get`.
+        We never want a finalizer to raise (Python prints
+        ``Exception ignored in...`` and continues) or a stray
+        ResourceWarning to leak from a worker thread that exited
+        without :meth:`close_all` ever being reached.
+        """
+        try:
+            conn.close()
+        except sqlite3.Error:
+            _log.debug("ThreadLocalConnectionPool: ignored close() error", exc_info=True)
+
+    def _drop_from_tracking(self, conn: sqlite3.Connection) -> None:
+        """Best-effort removal of a connection from the global tracking set.
+
+        Called by the per-thread finalizer once the worker thread's
+        ``threading.local`` storage is collected, so
+        :meth:`open_count` reflects only live connections.
+        """
+        with self._lock:
+            self._all_conns.discard(conn)
+
     def get(self) -> sqlite3.Connection:
         """Return the calling thread's connection, creating it on first use.
 
@@ -98,7 +128,15 @@ class ThreadLocalConnectionPool:
         if conn is not None:
             return conn
 
-        new_conn = sqlite3.connect(str(self._db_path))
+        # ``check_same_thread=False`` allows the per-thread finalizer
+        # below (which may run on any thread, often a different one
+        # than where the connection was opened) to call ``close()``.
+        # Cross-thread *use* is still prevented by storing the
+        # connection in :class:`threading.local`; only ``close`` is
+        # ever invoked from outside the originating thread.
+        new_conn = sqlite3.connect(
+            str(self._db_path), check_same_thread=False,
+        )
         apply_default_pragmas(new_conn)
 
         if self._initializer is not None:
@@ -111,7 +149,39 @@ class ThreadLocalConnectionPool:
         self._local.conn = new_conn
         with self._lock:
             self._all_conns.add(new_conn)
+
+        # Worker threads in concurrent.futures.ThreadPoolExecutor exit
+        # without anyone calling :meth:`close_all` on the pool, which
+        # used to leak ``ResourceWarning: unclosed database`` (178 of
+        # them in the test suite alone).  Register a finalize hook keyed
+        # on the calling thread so the connection is closed and dropped
+        # from the tracking set when that worker thread is collected.
+        # ``threading.local`` itself is owned by the pool and outlives
+        # the worker, so anchoring on the local would never trigger.
+        weakref.finalize(
+            threading.current_thread(),
+            self._finalize_thread_conn,
+            new_conn,
+            weakref.ref(self),
+        )
         return new_conn
+
+    @staticmethod
+    def _finalize_thread_conn(
+        conn: sqlite3.Connection,
+        pool_ref: weakref.ReferenceType[ThreadLocalConnectionPool],
+    ) -> None:
+        """Per-thread finalizer: close the connection, deregister it.
+
+        Held as a staticmethod (not a bound method) so the finalizer
+        does not pin the pool itself — the weak ref decides whether to
+        update the tracking set.  The connection is closed
+        unconditionally so file handles are always released.
+        """
+        ThreadLocalConnectionPool._safe_close(conn)
+        pool = pool_ref()
+        if pool is not None:
+            pool._drop_from_tracking(conn)
 
     def close_all(self) -> None:
         """Close every connection ever handed out by this pool.
@@ -127,10 +197,7 @@ class ThreadLocalConnectionPool:
             self._all_conns.clear()
             self._closed = True
         for conn in conns:
-            # Already-closed or otherwise broken connection — best
-            # effort cleanup, do not raise from close().
-            with contextlib.suppress(sqlite3.Error):
-                conn.close()
+            self._safe_close(conn)
         # Drop this thread's reference too.
         if hasattr(self._local, "conn"):
             with contextlib.suppress(AttributeError):

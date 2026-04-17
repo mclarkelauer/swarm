@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from swarm.experiments.api import ExperimentAPI
 from swarm.mcp import state
@@ -11,12 +10,15 @@ from swarm.mcp.instance import mcp
 
 
 def _get_experiment_api() -> ExperimentAPI:
-    """Resolve the ExperimentAPI, creating it lazily from the plans directory."""
-    if state.experiment_api is not None:
-        return state.experiment_api
-    plans_dir = Path(state.plans_dir) if state.plans_dir else Path.cwd()
-    db_path = plans_dir / "experiments.db"
-    return ExperimentAPI(db_path)
+    """Resolve the ExperimentAPI configured by ``server.main()``.
+
+    The MCP server unconditionally constructs ``state.experiment_api``
+    before tools are reachable, so a missing instance is a programmer
+    error and not a recoverable condition.  Mirrors the assertion
+    pattern used in ``memory_tools`` and ``forge_tools``.
+    """
+    assert state.experiment_api is not None
+    return state.experiment_api
 
 
 @mcp.tool()

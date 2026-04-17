@@ -227,30 +227,34 @@ class TestExperimentEnd:
         assert "error" in result
 
 
-class TestLazyApiResolution:
-    def test_get_experiment_api_uses_state_when_set(self) -> None:
+class TestApiResolution:
+    """Round 5 follow-up: ``_get_experiment_api`` no longer creates a
+    second on-disk database when ``state.experiment_api`` is missing.
+
+    The MCP server initializes ``state.experiment_api`` unconditionally
+    in ``server.main()``, so the helper now asserts on the invariant —
+    bringing it in line with ``memory_tools`` and ``forge_tools`` and
+    eliminating the silent ``plans_dir / experiments.db`` leak that
+    diverged from ``base_dir / experiments.db``.
+    """
+
+    def test_get_experiment_api_returns_state_instance(self) -> None:
         from swarm.mcp.experiment_tools import _get_experiment_api
 
         api = _get_experiment_api()
         assert api is state.experiment_api
 
-    def test_get_experiment_api_lazy_falls_back_to_plans_dir(
+    def test_get_experiment_api_asserts_when_state_missing(
         self, tmp_path: Path,
     ) -> None:
         from swarm.mcp.experiment_tools import _get_experiment_api
 
-        # Tear down the autouse fixture state to test lazy path
         assert state.experiment_api is not None
         state.experiment_api.close()
         state.experiment_api = None
-        state.plans_dir = str(tmp_path / "plans")
-        (tmp_path / "plans").mkdir()
-        api = _get_experiment_api()
         try:
-            assert api is not None
-            assert (tmp_path / "plans" / "experiments.db").exists()
+            with pytest.raises(AssertionError):
+                _get_experiment_api()
         finally:
-            api.close()
-            # Restore a clean state.experiment_api so the autouse teardown
-            # has something to close.
+            # Restore for autouse teardown.
             state.experiment_api = ExperimentAPI(tmp_path / "experiments.db")

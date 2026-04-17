@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
@@ -13,8 +14,6 @@ from swarm.mcp import state
 from swarm.mcp.forge_tools import forge_create, forge_suggest_ranked
 from swarm.registry.api import RegistryAPI
 from swarm.registry.models import AgentDefinition
-
-from pathlib import Path
 
 
 def _make_agent(name: str, description: str = "") -> AgentDefinition:

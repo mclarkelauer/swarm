@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -89,7 +89,7 @@ class TestReceive:
         m1 = api.send("a", "b", "old", run_id="r1")
         # Small delay to ensure different timestamps
         time.sleep(0.01)
-        m2 = api.send("a", "b", "new", run_id="r1")
+        api.send("a", "b", "new", run_id="r1")
         msgs = api.receive("b", "r1", since=m1.created_at)
         assert len(msgs) == 1
         assert msgs[0].content == "new"
@@ -187,9 +187,11 @@ class TestListByStep:
 
 class TestClose:
     def test_close_closes_connection(self, api: MessageAPI) -> None:
+        import sqlite3
+
         api.close()
         # After close, operations should fail
-        with pytest.raises(Exception):
+        with pytest.raises(sqlite3.ProgrammingError):
             api.send("a", "b", "should fail")
 
 
@@ -292,3 +294,23 @@ class TestConcurrency:
         assert msgs[0].content == "from-api1"
         api1.close()
         api2.close()
+
+
+class TestNegotiationMessageTypes:
+    """Round 5 follow-up: schema must accept all advertised types.
+
+    The pre-fix CHECK constraint only allowed request/response/broadcast
+    and raised :class:`sqlite3.IntegrityError` on the negotiation types.
+    """
+
+    @pytest.mark.parametrize(
+        "msg_type", ["proposal", "counter", "accept", "reject"],
+    )
+    def test_negotiation_type_round_trips(
+        self, api: MessageAPI, msg_type: str,
+    ) -> None:
+        msg = api.send("a", "b", f"hello-{msg_type}", message_type=msg_type)
+        fetched = api.get_message(msg.id)
+        assert fetched is not None
+        assert fetched.message_type == msg_type
+        assert fetched.content == f"hello-{msg_type}"
