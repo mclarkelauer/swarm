@@ -3,28 +3,27 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from swarm.errors import PlanError
+from swarm.plan.interpolation import safe_interpolate as _safe_interpolate
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.parser import validate_plan
 
 BUILTIN_TEMPLATES_DIR = Path(__file__).parent / "builtin_templates"
 USER_TEMPLATES_DIR = Path.home() / ".swarm" / "templates"
 
-
-def _safe_interpolate(template: str, variables: dict[str, str]) -> str:
-    """Interpolate ``{key}`` placeholders in *template* from *variables*.
-
-    Keys absent from *variables* are left as-is (no KeyError).
-    """
-
-    def _replacer(match: re.Match[str]) -> str:
-        return variables.get(match.group(1), match.group(0))
-
-    return re.sub(r"\{(\w+)\}", _replacer, template)
+__all__ = [
+    "BUILTIN_TEMPLATES_DIR",
+    "USER_TEMPLATES_DIR",
+    "_safe_interpolate",
+    "instantiate_template",
+    "list_template_params",
+    "list_templates",
+    "load_template",
+    "load_templates",
+]
 
 
 def _load_template_from_path(path: Path) -> Plan:

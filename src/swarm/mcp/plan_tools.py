@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
 from swarm.errors import PlanError, RegistryError
 from swarm.mcp import state
 from swarm.mcp.instance import mcp
+from swarm.plan._paths import resolve_plans_dir as _resolve_plans_dir
 from swarm.plan.dag import detect_cycles, get_ready_steps
-from swarm.plan.discovery import find_plans_dir
+from swarm.plan.interpolation import safe_interpolate as _safe_interpolate
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.parser import load_plan, save_plan, validate_plan, validate_tool_policies
 from swarm.plan.run_log import load_run_log, write_run_log
@@ -19,14 +19,26 @@ from swarm.plan.templates import instantiate_template, list_templates
 from swarm.plan.versioning import list_versions
 from swarm.plan.visualization import render_ascii, render_mermaid
 
-
-def _resolve_plans_dir(plans_dir: str) -> Path:
-    """Resolve the plans directory from an explicit path or the configured default."""
-    if plans_dir:
-        return Path(plans_dir)
-    if state.plans_dir:
-        return Path(state.plans_dir)
-    return find_plans_dir() or Path.cwd()
+__all__ = [
+    "_resolve_plans_dir",
+    "_safe_interpolate",
+    "plan_amend",
+    "plan_create",
+    "plan_execute_step",
+    "plan_get_ready_steps",
+    "plan_get_step",
+    "plan_list",
+    "plan_load",
+    "plan_patch_step",
+    "plan_remove_step",
+    "plan_replan",
+    "plan_retrospective",
+    "plan_template_instantiate",
+    "plan_template_list",
+    "plan_validate",
+    "plan_validate_policies",
+    "plan_visualize",
+]
 
 
 @mcp.tool()
@@ -183,17 +195,6 @@ def plan_get_step(plan_json: str, step_id: str) -> str:
         if step.id == step_id:
             return json.dumps(step.to_dict())
     return json.dumps({"error": f"Step '{step_id}' not found"})
-
-
-def _safe_interpolate(template: str, variables: dict[str, str]) -> str:
-    """Interpolate ``{key}`` placeholders in *template* from *variables*.
-
-    Keys absent from *variables* are left as-is (no KeyError).
-    """
-    def _replacer(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return variables.get(key, match.group(0))
-    return re.sub(r"\{(\w+)\}", _replacer, template)
 
 
 @mcp.tool()
@@ -386,10 +387,7 @@ def plan_amend(plan_path: str, insert_after: str, new_steps_json: str) -> str:
     except json.JSONDecodeError as exc:
         return json.dumps({"error": f"Invalid new_steps_json: {exc}"})
 
-    new_steps: list[PlanStep] = [
-        Plan.from_dict({"version": 1, "goal": "x", "steps": [s]}).steps[0]
-        for s in raw_new_steps
-    ]
+    new_steps: list[PlanStep] = [PlanStep.from_dict(s) for s in raw_new_steps]
 
     # 4. Validate no ID conflicts with existing steps
     existing_ids = {s.id for s in plan.steps}
@@ -405,7 +403,7 @@ def plan_amend(plan_path: str, insert_after: str, new_steps_json: str) -> str:
         if not step.depends_on:
             d = step.to_dict()
             d["depends_on"] = [last_new_id]
-            step = Plan.from_dict({"version": 1, "goal": "x", "steps": [d]}).steps[0]
+            step = PlanStep.from_dict(d)
         last_new_id = step.id
         wired_new_steps.append(step)
 
@@ -423,7 +421,7 @@ def plan_amend(plan_path: str, insert_after: str, new_steps_json: str) -> str:
             )
             d = step.to_dict()
             d["depends_on"] = list(new_deps)
-            step = Plan.from_dict({"version": 1, "goal": "x", "steps": [d]}).steps[0]
+            step = PlanStep.from_dict(d)
         rewired_existing.append(step)
 
     # 7. Build new step list: existing steps up to and including anchor,
@@ -505,7 +503,7 @@ def plan_patch_step(plan_path: str, step_id: str, overrides_json: str) -> str:
     # 4. Merge and rebuild step
     step_data = plan.steps[step_index].to_dict()
     step_data.update(overrides)
-    patched_step = Plan.from_dict({"version": 1, "goal": "x", "steps": [step_data]}).steps[0]
+    patched_step = PlanStep.from_dict(step_data)
 
     # 5. Replace step in list
     new_steps = list(plan.steps)

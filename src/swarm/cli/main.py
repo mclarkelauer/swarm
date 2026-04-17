@@ -11,6 +11,7 @@ from rich.table import Table
 
 from swarm.cli._helpers import open_registry
 from swarm.cli.catalog_cmd import catalog
+from swarm.cli.experiment_cmd import experiment
 from swarm.cli.forge_cmd import forge
 from swarm.cli.launch import launch_claude_session
 from swarm.cli.mcp_cmd import mcp_config
@@ -348,6 +349,7 @@ def ls() -> None:
 
 
 cli.add_command(catalog)
+cli.add_command(experiment)
 cli.add_command(forge)
 cli.add_command(plan)
 cli.add_command(registry)

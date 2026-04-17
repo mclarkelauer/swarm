@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "goal": "Code review pipeline for {target}",
+  "variables": {
+    "target": "the staged changes",
+    "project_dir": "."
+  },
+  "steps": [
+    {
+      "id": "analyze",
+      "type": "task",
+      "agent_type": "code-analyzer",
+      "prompt": "Analyze {target} in {project_dir}. Identify: complexity hotspots, dependency edges that crossed module boundaries, public API surface changes, and any anti-patterns. Output a markdown report with line references.",
+      "output_artifact": "analysis.md"
+    },
+    {
+      "id": "review",
+      "type": "task",
+      "agent_type": "code-reviewer",
+      "prompt": "Perform a code review of {target} using analysis.md as context. Cover correctness, security, performance, readability, and test coverage. For each finding include: severity (critical/high/medium/low), file:line, problem, recommendation.",
+      "depends_on": ["analyze"],
+      "required_inputs": ["analysis.md"],
+      "output_artifact": "review.md"
+    },
+    {
+      "id": "summarize",
+      "type": "task",
+      "agent_type": "technical-writer",
+      "prompt": "Convert review.md into an actionable summary. Group findings by severity, surface the top 5 must-fix items at the top, and end with a one-paragraph overall assessment. Keep it under 500 words.",
+      "depends_on": ["review"],
+      "required_inputs": ["review.md"],
+      "output_artifact": "summary.md"
+    },
+    {
+      "id": "approve",
+      "type": "checkpoint",
+      "prompt": "Final approval of code review",
+      "depends_on": ["summarize"],
+      "checkpoint_config": {
+        "message": "Review summary.md (with review.md and analysis.md as backing detail). Approve to complete the run."
+      }
+    }
+  ]
+}

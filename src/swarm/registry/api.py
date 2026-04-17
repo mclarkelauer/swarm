@@ -3,38 +3,25 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 from swarm._db_pool import ThreadLocalConnectionPool
+from swarm._fts import sanitize_fts_query
 from swarm.errors import RegistryError
 from swarm.registry.db import init_registry_schema
 from swarm.registry.models import AgentDefinition
 
 
 def _sanitize_fts_query(query: str) -> str:
-    """Convert a user query string into a safe FTS5 MATCH expression.
+    """Backwards-compatible wrapper around :func:`swarm._fts.sanitize_fts_query`.
 
-    - Strips FTS5 operators to prevent injection
-    - Wraps each token in double-quotes with a trailing ``*`` for prefix
-      matching so that ``review`` matches ``reviewer``
-    - Joins tokens with implicit AND (FTS5 default)
-
-    Examples:
-        "python test"   -> '"python"* "test"*'
-        "code-reviewer" -> '"code"* "reviewer"*'
-        'he said "hi"'  -> '"he"* "said"* "hi"*'
+    Preserves the historical prefix-matching semantics (``"review"*``)
+    used by the agent registry so existing imports keep working.
     """
-    # Remove FTS5 special characters: *, ^, NEAR, AND, OR, NOT, (, ), "
-    cleaned = re.sub(r'[*^"(){}]', ' ', query)
-    cleaned = re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', cleaned, flags=re.IGNORECASE)
-    tokens = cleaned.split()
-    if not tokens:
-        return '""'
-    return " ".join(f'"{token}"*' for token in tokens)
+    return sanitize_fts_query(query, prefix=True)
 
 
 class RegistryAPI:

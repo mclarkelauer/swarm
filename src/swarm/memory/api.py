@@ -3,36 +3,26 @@
 from __future__ import annotations
 
 import math
-import re
 import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from swarm._db_pool import ThreadLocalConnectionPool
+from swarm._fts import sanitize_fts_query
 from swarm.memory.db import init_memory_schema
 from swarm.memory.models import MemoryEntry
 
 
 def _sanitize_fts_query(query: str) -> str:
-    """Convert a user query string into a safe FTS5 MATCH expression.
+    """Wrapper around :func:`swarm._fts.sanitize_fts_query` with prefix matching.
 
-    - Strips FTS5 operators to prevent injection
-    - Wraps each token in double-quotes for exact term matching
-    - Joins tokens with implicit AND (FTS5 default)
-
-    Examples:
-        "python test"   -> '"python" "test"'
-        "code-reviewer" -> '"code" "reviewer"'
-        'he said "hi"'  -> '"he" "said" "hi"'
+    Memory recall now uses prefix matching (``"review"*``) for parity with
+    the agent registry — this lets ``recall("review")`` surface stored
+    memories about ``"reviewer"`` without requiring callers to pre-stem
+    the query.
     """
-    # Remove FTS5 special characters: *, ^, NEAR, AND, OR, NOT, (, ), "
-    cleaned = re.sub(r'[*^"(){}]', " ", query)
-    cleaned = re.sub(r"\b(AND|OR|NOT|NEAR)\b", " ", cleaned, flags=re.IGNORECASE)
-    tokens = cleaned.split()
-    if not tokens:
-        return '""'
-    return " ".join(f'"{token}"' for token in tokens)
+    return sanitize_fts_query(query, prefix=True)
 
 
 class MemoryAPI:

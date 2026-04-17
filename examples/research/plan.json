@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "goal": "Research {topic} from multiple angles and produce a synthesized report",
+  "variables": {
+    "topic": "open-source vector databases",
+    "output_format": "markdown"
+  },
+  "steps": [
+    {
+      "id": "research-landscape",
+      "type": "task",
+      "agent_type": "online-researcher",
+      "prompt": "Survey the current landscape of {topic}. Identify the major projects, their maturity, license, governance model, and primary use cases. Output a {output_format} report with a one-paragraph summary per project and a comparison matrix at the end.",
+      "output_artifact": "landscape.md"
+    },
+    {
+      "id": "research-tradeoffs",
+      "type": "task",
+      "agent_type": "online-researcher",
+      "prompt": "Analyze technical trade-offs for {topic}. Compare on: indexing algorithms, recall vs. latency curves, scaling story, operational complexity, and ecosystem integrations. Cite primary sources (project docs, benchmark papers). Output a {output_format} report.",
+      "output_artifact": "tradeoffs.md"
+    },
+    {
+      "id": "research-adoption",
+      "type": "task",
+      "agent_type": "online-researcher",
+      "prompt": "Document real-world adoption of {topic}. Find case studies, production deployments, and post-mortems. Note workload sizes, failure modes, and migration patterns. Output a {output_format} report grouped by company/project.",
+      "output_artifact": "adoption.md"
+    },
+    {
+      "id": "review",
+      "type": "checkpoint",
+      "prompt": "Review the three research tracks before synthesis",
+      "depends_on": ["research-landscape", "research-tradeoffs", "research-adoption"],
+      "checkpoint_config": {
+        "message": "All three research tracks complete (landscape.md, tradeoffs.md, adoption.md). Review before generating the synthesis."
+      }
+    },
+    {
+      "id": "synthesize",
+      "type": "task",
+      "agent_type": "summarizer",
+      "prompt": "Read landscape.md, tradeoffs.md, and adoption.md and produce a single {output_format} report on {topic}. Structure: executive summary, recommended shortlist, decision matrix, open questions. Cite the source artifacts inline.",
+      "depends_on": ["review"],
+      "required_inputs": ["landscape.md", "tradeoffs.md", "adoption.md"],
+      "output_artifact": "synthesis.md"
+    }
+  ]
+}

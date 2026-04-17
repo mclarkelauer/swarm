@@ -1,4 +1,4 @@
-"""Tests for swarm.mcp.discovery_tools: swarm_discover."""
+"""Tests for swarm.mcp.discovery_tools: swarm_discover and swarm_health."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ import pytest
 
 from swarm.forge.api import ForgeAPI
 from swarm.mcp import state
-from swarm.mcp.discovery_tools import swarm_discover
+from swarm.mcp.discovery_tools import swarm_discover, swarm_health
 from swarm.mcp.forge_tools import forge_create
+from swarm.memory.api import MemoryAPI
 from swarm.registry.api import RegistryAPI
 
 

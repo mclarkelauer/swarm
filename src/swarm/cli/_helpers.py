@@ -7,6 +7,7 @@ from contextlib import contextmanager
 
 from swarm.config import load_config
 from swarm.dirs import ensure_base_dir
+from swarm.experiments.api import ExperimentAPI
 from swarm.forge.api import ForgeAPI
 from swarm.registry.api import RegistryAPI
 
@@ -46,6 +47,27 @@ def open_registry() -> Iterator[RegistryAPI]:
 def open_forge() -> Iterator[ForgeAPI]:
     """Context-managed :class:`ForgeAPI` that closes on exit."""
     api = get_forge()
+    try:
+        yield api
+    finally:
+        api.close()
+
+
+def get_experiments() -> ExperimentAPI:
+    """Return an :class:`ExperimentAPI` using the default config.
+
+    Caller is responsible for ``close()``.  Prefer
+    :func:`open_experiments` as a context manager.
+    """
+    config = load_config()
+    ensure_base_dir(config.base_dir)
+    return ExperimentAPI(config.base_dir / "experiments.db")
+
+
+@contextmanager
+def open_experiments() -> Iterator[ExperimentAPI]:
+    """Context-managed :class:`ExperimentAPI` that closes on exit."""
+    api = get_experiments()
     try:
         yield api
     finally:

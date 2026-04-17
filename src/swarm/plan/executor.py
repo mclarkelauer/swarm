@@ -10,7 +10,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import subprocess
 import threading
 import time
@@ -28,6 +27,7 @@ from swarm.memory.injection import format_memories_for_prompt
 from swarm.plan.conditions import evaluate_condition
 from swarm.plan.dag import get_ready_steps
 from swarm.plan.events import EventLog, PlanEvent
+from swarm.plan.interpolation import safe_interpolate
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
 from swarm.plan.models import Plan, PlanStep
 from swarm.plan.pricing import estimate_cost_usd
@@ -360,14 +360,6 @@ def _find_step(plan: Plan, step_id: str) -> PlanStep:
     raise ExecutionError(f"Step '{step_id}' not found in plan")
 
 
-def _safe_interpolate(template: str, variables: dict[str, str]) -> str:
-    """Interpolate ``{key}`` placeholders, leaving unknown keys intact."""
-    def _replacer(match: re.Match[str]) -> str:
-        key = match.group(1)
-        return variables.get(key, match.group(0))
-    return re.sub(r"\{(\w+)\}", _replacer, template)
-
-
 # ---------------------------------------------------------------------------
 # Outcome recording
 # ---------------------------------------------------------------------------
@@ -483,7 +475,7 @@ def record_skip(
 
 def _resolve_step_prompt(plan: Plan, step: PlanStep) -> str:
     """Interpolate the step prompt with plan variables."""
-    return _safe_interpolate(step.prompt, plan.variables)
+    return safe_interpolate(step.prompt, plan.variables)
 
 
 def _build_agent_system_prompt(
@@ -959,7 +951,7 @@ def handle_fan_out(run_state: RunState, step: PlanStep) -> None:
 
     for i, branch in enumerate(step.fan_out_config.branches):
         branch_id = f"{step.id}::{i}"
-        branch_prompt = _safe_interpolate(branch.prompt, run_state.plan.variables)
+        branch_prompt = safe_interpolate(branch.prompt, run_state.plan.variables)
         system_prompt = _build_agent_system_prompt(step, run_state.artifacts_dir, memory_api=run_state.memory_api)
         tools = list(step.required_tools)
 

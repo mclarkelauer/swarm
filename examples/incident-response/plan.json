@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "goal": "Respond to incident: {incident_description}",
+  "variables": {
+    "incident_description": "elevated 5xx rate on the checkout API",
+    "service": "checkout-api",
+    "severity": "high"
+  },
+  "steps": [
+    {
+      "id": "triage",
+      "type": "task",
+      "agent_type": "incident-responder",
+      "prompt": "Triage the incident: {incident_description} affecting {service} (severity: {severity}). Output a markdown triage report with: confirmed scope, affected systems and users, immediate containment actions, severity classification, and the parallel investigation tracks to spawn next.",
+      "output_artifact": "triage.md"
+    },
+    {
+      "id": "investigate-logs",
+      "type": "task",
+      "agent_type": "code-analyzer",
+      "prompt": "Investigate {incident_description} in {service} via log analysis. Use triage.md for context. Identify error patterns, timeline of events, anomalous metrics, and correlations with recent deployments. Output a markdown report with a clear root-cause hypothesis.",
+      "depends_on": ["triage"],
+      "required_inputs": ["triage.md"],
+      "output_artifact": "log-investigation.md"
+    },
+    {
+      "id": "investigate-code",
+      "type": "task",
+      "agent_type": "code-reviewer",
+      "prompt": "Investigate {incident_description} in {service} via code analysis. Use triage.md for context. Examine recent code changes, configuration drift, and dependency updates that could explain the symptoms. Output a markdown report with the most likely code-level root cause.",
+      "depends_on": ["triage"],
+      "required_inputs": ["triage.md"],
+      "output_artifact": "code-investigation.md"
+    },
+    {
+      "id": "fix",
+      "type": "task",
+      "agent_type": "implementer",
+      "prompt": "Implement the minimum viable fix for {incident_description} in {service}. Synthesize log-investigation.md and code-investigation.md, then describe the smallest safe change to ship. Document what you changed, why, and the rollback plan.",
+      "depends_on": ["investigate-logs", "investigate-code"],
+      "required_inputs": ["log-investigation.md", "code-investigation.md"],
+      "output_artifact": "fix.md"
+    },
+    {
+      "id": "postmortem",
+      "type": "task",
+      "agent_type": "technical-writer",
+      "prompt": "Write a blameless postmortem for {incident_description}. Pull from triage.md, log-investigation.md, code-investigation.md, and fix.md. Sections: summary, timeline, root cause, impact, what went well, what went poorly, action items with owners and dates, lessons learned.",
+      "depends_on": ["fix"],
+      "required_inputs": ["triage.md", "log-investigation.md", "code-investigation.md", "fix.md"],
+      "output_artifact": "postmortem.md"
+    }
+  ]
+}

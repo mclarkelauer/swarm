@@ -11,18 +11,11 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
+from swarm.plan._paths import resolve_plans_dir as _resolve_plans_dir
 from swarm.plan.dag import detect_cycles, get_ready_steps
-from swarm.plan.discovery import find_plans_dir
 from swarm.plan.models import Plan
 from swarm.plan.parser import load_plan, save_plan, validate_plan
 from swarm.plan.versioning import list_versions
-
-
-def _resolve_plans_dir(plans_dir: str) -> Path:
-    """Resolve plans directory with discovery fallback."""
-    if plans_dir != ".":
-        return Path(plans_dir)
-    return find_plans_dir() or Path.cwd()
 
 
 @click.group()
