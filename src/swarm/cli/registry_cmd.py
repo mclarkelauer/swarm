@@ -123,7 +123,7 @@ def clone(identifier: str, name: str, prompt: str | None, tools: str | None) -> 
     IDENTIFIER can be an agent name or UUID.
     """
     api = get_registry()
-    overrides: dict[str, str | list[str]] = {"name": name}
+    overrides: dict[str, str | int | list[str]] = {"name": name}
     if prompt is not None:
         overrides["system_prompt"] = prompt
     if tools is not None:

@@ -19,6 +19,7 @@ from swarm.cli.registry_cmd import registry
 from swarm.cli.run_cmd import run
 from swarm.cli.status_cmd import status
 from swarm.cli.sync_cmd import sync
+from swarm.cli.update_cmd import update
 from swarm.plan.parser import load_plan
 from swarm.plan.versioning import list_versions
 
@@ -321,4 +322,5 @@ cli.add_command(registry)
 cli.add_command(run)
 cli.add_command(status)
 cli.add_command(sync)
+cli.add_command(update)
 cli.add_command(mcp_config)

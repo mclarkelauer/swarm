@@ -921,7 +921,7 @@ def plan_replan(
         })
 
     # 4. Delegate to plan_amend
-    result_json = plan_amend(
+    result_json: str = plan_amend(
         plan_path=plan_path,
         insert_after=insert_after,
         new_steps_json=new_steps_json,

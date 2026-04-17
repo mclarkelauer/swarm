@@ -42,8 +42,12 @@ def _write_plan(directory: Path, version: int = 1) -> Path:
 
 class TestLs:
     @pytest.mark.usefixtures("_mock_config")
-    def test_ls_empty(self, runner: CliRunner) -> None:
-        result = runner.invoke(cli, ["ls"])
+    def test_ls_empty(self, runner: CliRunner, tmp_path: Path) -> None:
+        # Isolate cwd so the test doesn't pick up plan_v*.json files in the
+        # real working directory (e.g. when running tests from inside a repo
+        # that contains its own plan files).
+        with runner.isolated_filesystem(temp_dir=tmp_path):
+            result = runner.invoke(cli, ["ls"])
         assert result.exit_code == 0
         assert "No agents or plans" in result.output
 

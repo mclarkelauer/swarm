@@ -261,7 +261,9 @@ def status(log_file: str, diagnose: bool) -> None:
             pass
     total_display = plan_total if plan_total is not None else len(log.steps)
 
-    console.print(f"[bold]Plan:[/bold]    {log.plan_path}")
+    # ``soft_wrap=True`` keeps the (potentially long) plan path on one line
+    # in narrow terminals so callers can grep / copy it cleanly.
+    console.print(f"[bold]Plan:[/bold]    {log.plan_path}", soft_wrap=True)
     console.print(f"[bold]Version:[/bold] {log.plan_version}")
     console.print(f"[bold]Status:[/bold]  {_status_color(log.status)}")
     console.print(f"[bold]Progress:[/bold] {completed_count}/{total_display} steps complete")

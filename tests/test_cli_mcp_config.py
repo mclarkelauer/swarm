@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from click.testing import CliRunner
 
@@ -42,4 +43,6 @@ class TestMcpConfig:
         runner = CliRunner()
         result = runner.invoke(cli, ["mcp-config", "--plans-dir", "/tmp/myplans"])
         data = json.loads(result.output)
-        assert data["swarm"]["env"]["SWARM_PLANS_DIR"] == "/tmp/myplans"
+        # The CLI resolves the path; on macOS /tmp is a symlink to /private/tmp,
+        # so compare against the resolved form rather than the literal input.
+        assert data["swarm"]["env"]["SWARM_PLANS_DIR"] == str(Path("/tmp/myplans").resolve())
