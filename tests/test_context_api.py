@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,12 @@ from swarm.context.api import SharedContextAPI
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> SharedContextAPI:
-    return SharedContextAPI(tmp_path / "context.db")
+def api(tmp_path: Path) -> Iterator[SharedContextAPI]:
+    api = SharedContextAPI(tmp_path / "context.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestSetAndGet:

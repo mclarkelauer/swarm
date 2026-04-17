@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.status import Status
 from rich.table import Table
 
-from swarm.cli._helpers import get_forge, get_registry
+from swarm.cli._helpers import open_forge, open_registry
 from swarm.cli.launch import launch_claude_session
 from swarm.config import load_config
 from swarm.forge.prompts import FORGE_SYSTEM_PROMPT, build_forge_prompt
@@ -99,86 +99,85 @@ def design(task: str, name: str | None, dry_run: bool) -> None:
         swarm forge design "summarize Slack threads" --dry-run
     """
     console = Console()
-    api = get_forge()
+    with open_forge() as api:
+        # Gather existing agents for context
+        existing = api.suggest_agent("")
 
-    # Gather existing agents for context
-    existing = api.suggest_agent("")
+        # Build the prompt
+        task_prompt = build_forge_prompt(task, existing)
 
-    # Build the prompt
-    task_prompt = build_forge_prompt(task, existing)
+        config = load_config()
+        timeout = config.forge_timeout
 
-    config = load_config()
-    timeout = config.forge_timeout
+        console.print(f"[bold]Forging agent for:[/bold] {task}")
 
-    console.print(f"[bold]Forging agent for:[/bold] {task}")
+        # Invoke Claude
+        claude_cmd = shutil.which("claude")
+        if not claude_cmd:
+            console.print("[red]Error: claude CLI not found.[/red]")
+            console.print("Install with: npm install -g @anthropic-ai/claude-code")
+            raise SystemExit(1)
 
-    # Invoke Claude
-    claude_cmd = shutil.which("claude")
-    if not claude_cmd:
-        console.print("[red]Error: claude CLI not found.[/red]")
-        console.print("Install with: npm install -g @anthropic-ai/claude-code")
-        raise SystemExit(1)
+        cmd = [
+            claude_cmd,
+            "--dangerously-skip-permissions",
+            "--system-prompt", FORGE_SYSTEM_PROMPT,
+            "--output-format", "json",
+            "--print",
+            "-p", task_prompt,
+        ]
 
-    cmd = [
-        claude_cmd,
-        "--dangerously-skip-permissions",
-        "--system-prompt", FORGE_SYSTEM_PROMPT,
-        "--output-format", "json",
-        "--print",
-        "-p", task_prompt,
-    ]
+        try:
+            result = _run_with_spinner(cmd, timeout, console)
+        except FileNotFoundError as exc:
+            console.print("[red]Error: claude CLI not found.[/red]")
+            raise SystemExit(1) from exc
 
-    try:
-        result = _run_with_spinner(cmd, timeout, console)
-    except FileNotFoundError as exc:
-        console.print("[red]Error: claude CLI not found.[/red]")
-        raise SystemExit(1) from exc
+        if result.returncode != 0 and not result.stdout.strip():
+            console.print(f"[red]Claude failed (exit {result.returncode}):[/red]")
+            console.print(result.stderr[:500] if result.stderr else "unknown error")
+            raise SystemExit(1)
 
-    if result.returncode != 0 and not result.stdout.strip():
-        console.print(f"[red]Claude failed (exit {result.returncode}):[/red]")
-        console.print(result.stderr[:500] if result.stderr else "unknown error")
-        raise SystemExit(1)
+        # Parse the JSON response
+        raw = result.stdout.strip()
+        definition = _parse_definition(raw)
+        if definition is None:
+            console.print("[red]Could not parse agent definition from Claude's response.[/red]")
+            console.print("[dim]Raw output:[/dim]")
+            console.print(raw[:1000])
+            raise SystemExit(1)
 
-    # Parse the JSON response
-    raw = result.stdout.strip()
-    definition = _parse_definition(raw)
-    if definition is None:
-        console.print("[red]Could not parse agent definition from Claude's response.[/red]")
-        console.print("[dim]Raw output:[/dim]")
-        console.print(raw[:1000])
-        raise SystemExit(1)
+        # Apply name override
+        if name:
+            definition["name"] = name
 
-    # Apply name override
-    if name:
-        definition["name"] = name
-
-    # Display the definition
-    console.print()
-    console.print("[bold green]Agent definition:[/bold green]")
-    console.print(f"  [bold]Name:[/bold]        {definition['name']}")
-    console.print(f"  [bold]Tools:[/bold]       {definition.get('tools', [])}")
-    console.print(f"  [bold]Permissions:[/bold] {definition.get('permissions', [])}")
-    console.print("  [bold]Prompt:[/bold]")
-    for line in definition.get("system_prompt", "").split("\n")[:10]:
-        console.print(f"    {line}")
-    prompt_lines = definition.get("system_prompt", "").split("\n")
-    if len(prompt_lines) > 10:
-        console.print(f"    [dim]... ({len(prompt_lines) - 10} more lines)[/dim]")
-
-    if dry_run:
+        # Display the definition
         console.print()
-        console.print("[yellow]Dry run — not registered.[/yellow]")
-        console.print("[dim]JSON:[/dim]")
-        console.print(json.dumps(definition, indent=2))
-        return
+        console.print("[bold green]Agent definition:[/bold green]")
+        console.print(f"  [bold]Name:[/bold]        {definition['name']}")
+        console.print(f"  [bold]Tools:[/bold]       {definition.get('tools', [])}")
+        console.print(f"  [bold]Permissions:[/bold] {definition.get('permissions', [])}")
+        console.print("  [bold]Prompt:[/bold]")
+        for line in definition.get("system_prompt", "").split("\n")[:10]:
+            console.print(f"    {line}")
+        prompt_lines = definition.get("system_prompt", "").split("\n")
+        if len(prompt_lines) > 10:
+            console.print(f"    [dim]... ({len(prompt_lines) - 10} more lines)[/dim]")
 
-    # Register
-    defn = api.create_agent(
-        name=definition["name"],
-        system_prompt=definition.get("system_prompt", ""),
-        tools=definition.get("tools", []),
-        permissions=definition.get("permissions", []),
-    )
+        if dry_run:
+            console.print()
+            console.print("[yellow]Dry run — not registered.[/yellow]")
+            console.print("[dim]JSON:[/dim]")
+            console.print(json.dumps(definition, indent=2))
+            return
+
+        # Register
+        defn = api.create_agent(
+            name=definition["name"],
+            system_prompt=definition.get("system_prompt", ""),
+            tools=definition.get("tools", []),
+            permissions=definition.get("permissions", []),
+        )
     console.print()
     console.print(f"[bold green]Registered:[/bold green] {defn.name} ({defn.id})")
 
@@ -197,8 +196,8 @@ def suggest(query: str) -> None:
         swarm forge suggest "testing"
     """
     console = Console()
-    api = get_forge()
-    results = api.suggest_agent(query)
+    with open_forge() as api:
+        results = api.suggest_agent(query)
 
     if not results:
         console.print(f"[dim]No agents matching '{query}'.[/dim]")
@@ -308,20 +307,19 @@ def edit(identifier: str) -> None:
         swarm forge edit 3f8a2b1c-...
     """
     console = Console()
-    registry = get_registry()
-    api = get_forge()
-    try:
-        defn = registry.resolve_agent(identifier)
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise SystemExit(1) from e
+    with open_registry() as registry, open_forge() as api:
+        try:
+            defn = registry.resolve_agent(identifier)
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise SystemExit(1) from e
 
-    new_prompt = click.edit(defn.system_prompt)
-    if new_prompt is None or new_prompt.strip() == defn.system_prompt.strip():
-        console.print("[dim]No changes.[/dim]")
-        return
+        new_prompt = click.edit(defn.system_prompt)
+        if new_prompt is None or new_prompt.strip() == defn.system_prompt.strip():
+            console.print("[dim]No changes.[/dim]")
+            return
 
-    cloned = api.clone_agent(defn.id, {"name": defn.name, "system_prompt": new_prompt.strip()})
+        cloned = api.clone_agent(defn.id, {"name": defn.name, "system_prompt": new_prompt.strip()})
     console.print(f"[bold green]Updated:[/bold green] {cloned.name} ({cloned.id})")
     console.print(f"[dim]Previous version: {defn.id[:12]}[/dim]")
 
@@ -341,12 +339,12 @@ def export_agent(identifier: str, output: str | None) -> None:
         swarm forge export code-reviewer -o ./my-agent.agent.json
     """
     console = Console()
-    registry = get_registry()
-    try:
-        defn = registry.resolve_agent(identifier)
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        raise SystemExit(1) from e
+    with open_registry() as registry:
+        try:
+            defn = registry.resolve_agent(identifier)
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise SystemExit(1) from e
 
     data = {
         "name": defn.name,
@@ -369,7 +367,6 @@ def import_agent(path: str) -> None:
         swarm forge import ./code-reviewer.agent.json
     """
     console = Console()
-    api = get_forge()
     try:
         data = json.loads(Path(path).read_text())
     except json.JSONDecodeError as e:
@@ -382,10 +379,11 @@ def import_agent(path: str) -> None:
         console.print("[red]Error: file must contain 'name' and 'system_prompt' fields.[/red]")
         raise SystemExit(1)
 
-    defn = api.create_agent(
-        name=name,
-        system_prompt=system_prompt,
-        tools=data.get("tools", []),
-        permissions=data.get("permissions", []),
-    )
+    with open_forge() as api:
+        defn = api.create_agent(
+            name=name,
+            system_prompt=system_prompt,
+            tools=data.get("tools", []),
+            permissions=data.get("permissions", []),
+        )
     console.print(f"[bold green]Imported:[/bold green] {defn.name} ({defn.id})")

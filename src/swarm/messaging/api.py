@@ -355,3 +355,9 @@ class MessageAPI:
     def close(self) -> None:
         """Close the database connection."""
         self._conn.close()
+
+    def __enter__(self) -> MessageAPI:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

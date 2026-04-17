@@ -2,10 +2,28 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from swarm.dirs import ensure_base_dir
+
+
+@pytest.fixture(autouse=True)
+def _close_state_apis() -> Iterator[None]:
+    """Close any state APIs that ``main()`` populates so the underlying
+    SQLite connections do not leak across tests."""
+    from swarm.mcp import state
+
+    yield
+    for attr in ("registry_api", "forge_api", "memory_api", "message_api", "context_api"):
+        api = getattr(state, attr, None)
+        if api is not None:
+            with __import__("contextlib").suppress(Exception):
+                api.close()
+            setattr(state, attr, None)
 
 
 class TestMcpServerMain:

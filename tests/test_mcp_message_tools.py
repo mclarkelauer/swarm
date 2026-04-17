@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -19,9 +20,15 @@ from swarm.messaging.api import MessageAPI
 
 
 @pytest.fixture(autouse=True)
-def _setup_state(tmp_path: Path) -> None:
+def _setup_state(tmp_path: Path) -> Iterator[None]:
     state.message_api = MessageAPI(tmp_path / "messages.db")
     state.plans_dir = str(tmp_path)
+    try:
+        yield
+    finally:
+        assert state.message_api is not None
+        state.message_api.close()
+        state.message_api = None
 
 
 class TestAgentSendMessage:

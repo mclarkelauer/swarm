@@ -113,8 +113,8 @@ def launch_claude_session(
 
     # Seed the base agent catalog before launching — idempotent, fast when current.
     try:
-        registry = RegistryAPI(config.base_dir / "registry.db")
-        seed_base_agents(registry)
+        with RegistryAPI(config.base_dir / "registry.db") as registry:
+            seed_base_agents(registry)
     except Exception:
         # Never block session launch due to a seeding failure.
         pass

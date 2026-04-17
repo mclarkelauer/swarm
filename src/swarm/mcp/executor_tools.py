@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from swarm.errors import ExecutionError, PlanError
+from swarm.errors import ExecutionError, PlanError, RunLogCorruptError
 from swarm.mcp import state
 from swarm.mcp.instance import mcp
 from swarm.plan.executor import execute_plan, init_run_state
@@ -100,6 +100,11 @@ def plan_run(
 
     try:
         run_state = init_run_state(plan, p_path, art_dir, log_path)
+    except RunLogCorruptError as exc:
+        return json.dumps({
+            "error": "run_log_corrupt",
+            "message": str(exc),
+        })
     except ExecutionError as exc:
         return json.dumps({"error": str(exc)})
 
@@ -243,6 +248,11 @@ def plan_run_resume(
 
     try:
         run_state = init_run_state(plan, p_path, art_dir, log_p)
+    except RunLogCorruptError as exc:
+        return json.dumps({
+            "error": "run_log_corrupt",
+            "message": str(exc),
+        })
     except ExecutionError as exc:
         return json.dumps({"error": str(exc)})
 

@@ -88,34 +88,34 @@ class TestRecallSimilar:
     def test_recall_similar_finds_related_memories(self, tmp_path) -> None:
         from swarm.memory.api import MemoryAPI
 
-        api = MemoryAPI(tmp_path / "mem.db")
-        api.store("agent", "Always use pytest fixtures for test isolation")
-        api.store("agent", "Deploy to production on Fridays")
-        api.store("agent", "Run pytest with -v flag for verbose output")
+        with MemoryAPI(tmp_path / "mem.db") as api:
+            api.store("agent", "Always use pytest fixtures for test isolation")
+            api.store("agent", "Deploy to production on Fridays")
+            api.store("agent", "Run pytest with -v flag for verbose output")
 
-        results = api.recall_similar("agent", "how to test with pytest")
-        assert len(results) >= 2
-        # pytest-related memories should rank higher
-        contents = [entry.content for entry, _ in results]
-        assert any("pytest" in c for c in contents[:2])
+            results = api.recall_similar("agent", "how to test with pytest")
+            assert len(results) >= 2
+            # pytest-related memories should rank higher
+            contents = [entry.content for entry, _ in results]
+            assert any("pytest" in c for c in contents[:2])
 
     def test_recall_similar_empty(self, tmp_path) -> None:
         from swarm.memory.api import MemoryAPI
 
-        api = MemoryAPI(tmp_path / "mem.db")
-        results = api.recall_similar("agent", "anything")
-        assert results == []
+        with MemoryAPI(tmp_path / "mem.db") as api:
+            results = api.recall_similar("agent", "anything")
+            assert results == []
 
     def test_recall_similar_respects_min_relevance(self, tmp_path) -> None:
         from swarm.memory.api import MemoryAPI
 
-        api = MemoryAPI(tmp_path / "mem.db")
-        entry = api.store("agent", "low relevance memory")
-        api._conn.execute(
-            "UPDATE memory SET relevance_score = 0.05 WHERE id = ?",
-            (entry.id,),
-        )
-        api._conn.commit()
+        with MemoryAPI(tmp_path / "mem.db") as api:
+            entry = api.store("agent", "low relevance memory")
+            api._conn.execute(
+                "UPDATE memory SET relevance_score = 0.05 WHERE id = ?",
+                (entry.id,),
+            )
+            api._conn.commit()
 
-        results = api.recall_similar("agent", "memory", min_relevance=0.1)
-        assert len(results) == 0
+            results = api.recall_similar("agent", "memory", min_relevance=0.1)
+            assert len(results) == 0

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,8 +14,12 @@ from swarm.messaging.models import AgentMessage
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> MessageAPI:
-    return MessageAPI(tmp_path / "messages.db")
+def api(tmp_path: Path) -> Iterator[MessageAPI]:
+    api = MessageAPI(tmp_path / "messages.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestSend:

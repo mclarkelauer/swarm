@@ -9,7 +9,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from swarm.cli._helpers import get_registry
+from swarm.cli._helpers import open_registry
 from swarm.cli.catalog_cmd import catalog
 from swarm.cli.forge_cmd import forge
 from swarm.cli.launch import launch_claude_session
@@ -34,6 +34,38 @@ a generalist. When in doubt, create a new agent rather than overloading an \
 existing one.
 
 WHEN THE USER DESCRIBES A GOAL:
+0. AMBIGUITY CHECK — Before decomposing the goal into agents, quickly assess \
+whether the goal is specific enough to plan. Look for these signals:
+
+   PROCEED DIRECTLY (skip interview) if the goal has:
+   - Specific file paths or module names
+   - Concrete acceptance criteria ("tests pass", "no mypy errors")
+   - Explicit constraints ("don't change the public API")
+   - Under 30 words with a specific artifact (file, function, error message)
+
+   OFFER AN INTERVIEW if the goal has:
+   - No file paths, function names, or specific artifacts
+   - Abstract quality words ("improve", "make better", "optimize")
+   - Over 50 words with no concrete anchors
+   - Multiple ambiguous sub-goals ("refactor and also add features")
+   - Risk indicators ("production", "migration", "breaking change") \
+without safety details
+
+   When offering, say: "This goal has some ambiguity. I can run a quick \
+requirements interview to clarify scope and acceptance criteria before \
+planning. This usually takes 2-5 minutes and produces a clearer plan. \
+Want me to proceed with the interview, or should I plan directly from \
+what you've told me?"
+
+   If the user accepts: conduct the interview yourself following the \
+requirements-interviewer protocol. Score the 6 ambiguity dimensions, ask \
+targeted questions for high-ambiguity dimensions, and produce a \
+requirements-brief.md artifact before proceeding to step 1. If at any \
+point during the interview the user says to stop or proceed, crystallize \
+immediately with whatever information has been gathered.
+
+   If the user declines: proceed directly to step 1.
+
 1. Immediately call forge_suggest and forge_list to see what agents already exist.
 2. Break the goal into the narrowest possible responsibilities. Think: what \
 distinct SKILLS does this require? Each skill = one agent.
@@ -276,8 +308,8 @@ def ls() -> None:
     has_output = False
 
     # Agents
-    api = get_registry()
-    agents = api.list_agents()
+    with open_registry() as api:
+        agents = api.list_agents()
     if agents:
         has_output = True
         table = Table(title="Agents")

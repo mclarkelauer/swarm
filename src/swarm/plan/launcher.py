@@ -108,10 +108,15 @@ def launch_agent(
 
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build command
+    # Build command.  ``--output-format json`` makes the CLI emit a single
+    # machine-readable result object on stdout (with ``total_cost_usd``,
+    # ``usage``, ``modelUsage`` keys) so the executor can record cost data
+    # deterministically instead of regex-scraping arbitrary stderr lines.
     cmd: list[str] = [
         str(claude_bin),
         "--dangerously-skip-permissions",
+        "--output-format",
+        "json",
         "--system-prompt",
         agent_prompt,
         "-p",

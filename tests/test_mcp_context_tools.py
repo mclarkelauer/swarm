@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -18,8 +19,14 @@ from swarm.mcp.context_tools import (
 
 
 @pytest.fixture(autouse=True)
-def _setup_state(tmp_path: Path) -> None:
+def _setup_state(tmp_path: Path) -> Iterator[None]:
     state.context_api = SharedContextAPI(tmp_path / "context.db")
+    try:
+        yield
+    finally:
+        assert state.context_api is not None
+        state.context_api.close()
+        state.context_api = None
 
 
 class TestContextSet:

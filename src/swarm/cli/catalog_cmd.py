@@ -18,7 +18,7 @@ from rich.table import Table
 
 from swarm.catalog import ALL_BASE_AGENTS
 from swarm.catalog.seed import _catalog_id, seed_base_agents
-from swarm.cli._helpers import get_registry
+from swarm.cli._helpers import open_registry
 
 # ---------------------------------------------------------------------------
 # Domain grouping
@@ -241,8 +241,8 @@ def show(name: str) -> None:
     model = str(spec.get("model", ""))
 
     # Check registry status
-    registry = get_registry()
-    in_registry = registry.get(agent_id) is not None
+    with open_registry() as registry:
+        in_registry = registry.get(agent_id) is not None
 
     console.print("")
     console.print(f"[bold cyan]{agent_name}[/bold cyan]  [dim]{domain}[/dim]")
@@ -299,9 +299,8 @@ def seed(quiet: bool) -> None:
     clones are flagged with a [PARENT UPDATED] notice in their notes.
     """
     console = Console()
-    registry = get_registry()
 
-    with console.status("[bold blue]Seeding catalog...[/bold blue]"):
+    with open_registry() as registry, console.status("[bold blue]Seeding catalog...[/bold blue]"):
         summary = seed_base_agents(registry)
 
     created = summary["created"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -44,8 +45,12 @@ def _make_defn(agent_id: str, name: str, prompt: str = "prompt") -> AgentDefinit
 
 
 @pytest.fixture()
-def forge(tmp_path: Path) -> ForgeAPI:
-    return ForgeAPI(tmp_path / "registry.db", tmp_path / "forge")
+def forge(tmp_path: Path) -> Iterator[ForgeAPI]:
+    forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge")
+    try:
+        yield forge
+    finally:
+        forge.close()
 
 
 class TestCreateAgent:
@@ -136,62 +141,62 @@ class TestSuggestAgentWithSources:
 
     def test_source_results_included(self, tmp_path: Path) -> None:
         source = _StubSource("stub", [_make_defn("ext-1", "linter", "Lints code.")])
-        forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source])
-        results = forge.suggest_agent("lint")
-        assert len(results) == 1
-        assert results[0].name == "linter"
+        with ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source]) as forge:
+            results = forge.suggest_agent("lint")
+            assert len(results) == 1
+            assert results[0].name == "linter"
 
     def test_registry_and_source_combined(self, tmp_path: Path) -> None:
         source = _StubSource("stub", [_make_defn("ext-1", "external-reviewer", "Reviews.")])
-        forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source])
-        forge.create_agent("internal-reviewer", "Reviews code quality.", [], [])
-        results = forge.suggest_agent("review")
-        names = {r.name for r in results}
-        assert "internal-reviewer" in names
-        assert "external-reviewer" in names
+        with ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source]) as forge:
+            forge.create_agent("internal-reviewer", "Reviews code quality.", [], [])
+            results = forge.suggest_agent("review")
+            names = {r.name for r in results}
+            assert "internal-reviewer" in names
+            assert "external-reviewer" in names
 
     def test_registry_results_come_first(self, tmp_path: Path) -> None:
         source = _StubSource("stub", [_make_defn("ext-1", "reviewer", "Reviews.")])
-        forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source])
-        reg_defn = forge.create_agent("reviewer-pro", "Reviews code.", [], [])
-        results = forge.suggest_agent("review")
-        # Registry hit should be first
-        assert results[0].id == reg_defn.id
+        with ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[source]) as forge:
+            reg_defn = forge.create_agent("reviewer-pro", "Reviews code.", [], [])
+            results = forge.suggest_agent("review")
+            # Registry hit should be first
+            assert results[0].id == reg_defn.id
 
     def test_deduplicates_by_id(self, tmp_path: Path) -> None:
         shared_defn = _make_defn("same-id", "dup-agent", "Does stuff.")
         source_a = _StubSource("a", [shared_defn])
         source_b = _StubSource("b", [shared_defn])
-        forge = ForgeAPI(
+        with ForgeAPI(
             tmp_path / "registry.db", tmp_path / "forge",
             sources=[source_a, source_b],
-        )
-        results = forge.suggest_agent("dup")
-        assert len(results) == 1
-        assert results[0].id == "same-id"
+        ) as forge:
+            results = forge.suggest_agent("dup")
+            assert len(results) == 1
+            assert results[0].id == "same-id"
 
     def test_multiple_sources_aggregated(self, tmp_path: Path) -> None:
         source_a = _StubSource("a", [_make_defn("a-1", "tester", "Tests code.")])
         source_b = _StubSource("b", [_make_defn("b-1", "test-writer", "Writes tests.")])
-        forge = ForgeAPI(
+        with ForgeAPI(
             tmp_path / "registry.db", tmp_path / "forge",
             sources=[source_a, source_b],
-        )
-        results = forge.suggest_agent("test")
-        names = {r.name for r in results}
-        assert "tester" in names
-        assert "test-writer" in names
+        ) as forge:
+            results = forge.suggest_agent("test")
+            names = {r.name for r in results}
+            assert "tester" in names
+            assert "test-writer" in names
 
     def test_empty_sources_still_queries_registry(self, tmp_path: Path) -> None:
         empty = _StubSource("empty", [])
-        forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[empty])
-        forge.create_agent("worker", "Does work.", [], [])
-        results = forge.suggest_agent("work")
-        assert len(results) == 1
-        assert results[0].name == "worker"
+        with ForgeAPI(tmp_path / "registry.db", tmp_path / "forge", sources=[empty]) as forge:
+            forge.create_agent("worker", "Does work.", [], [])
+            results = forge.suggest_agent("work")
+            assert len(results) == 1
+            assert results[0].name == "worker"
 
     def test_no_sources_backward_compatible(self, tmp_path: Path) -> None:
-        forge = ForgeAPI(tmp_path / "registry.db", tmp_path / "forge")
-        forge.create_agent("agent", "Does things.", [], [])
-        results = forge.suggest_agent("thing")
-        assert len(results) == 1
+        with ForgeAPI(tmp_path / "registry.db", tmp_path / "forge") as forge:
+            forge.create_agent("agent", "Does things.", [], [])
+            results = forge.suggest_agent("thing")
+            assert len(results) == 1

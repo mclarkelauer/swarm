@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -14,15 +15,21 @@ from swarm.registry.api import RegistryAPI
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> RegistryAPI:
-    return RegistryAPI(tmp_path / "registry.db")
+def api(tmp_path: Path) -> Iterator[RegistryAPI]:
+    api = RegistryAPI(tmp_path / "registry.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 @pytest.fixture(autouse=True)
-def _set_state(api: RegistryAPI) -> None:
+def _set_state(api: RegistryAPI) -> Iterator[None]:
     state.registry_api = api
-    yield  # type: ignore[misc]
-    state.registry_api = None
+    try:
+        yield
+    finally:
+        state.registry_api = None
 
 
 class TestForgeDiff:

@@ -571,3 +571,13 @@ class RegistryAPI:
 
         result["provenance_chain"] = chain
         return result
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
+    def __enter__(self) -> RegistryAPI:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

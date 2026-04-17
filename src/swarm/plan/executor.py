@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -29,7 +30,14 @@ from swarm.plan.dag import get_ready_steps
 from swarm.plan.events import EventLog, PlanEvent
 from swarm.plan.launcher import find_claude_binary, launch_agent, wait_with_timeout
 from swarm.plan.models import Plan, PlanStep
-from swarm.plan.run_log import RunLog, StepOutcome, load_run_log, write_run_log
+from swarm.plan.pricing import estimate_cost_usd
+from swarm.plan.run_log import (
+    BackgroundStepRecord,
+    RunLog,
+    StepOutcome,
+    load_run_log_resilient,
+    write_run_log,
+)
 
 logger = structlog.get_logger()
 
@@ -189,44 +197,154 @@ class RunState:
 # ---------------------------------------------------------------------------
 
 
-def _parse_cost_data(artifacts_dir: Path, step_id: str) -> dict[str, Any]:
-    """Parse token usage from claude CLI stderr output.
-
-    The claude CLI outputs usage data to stderr.  We look for JSON-formatted
-    usage data or known patterns.
-
-    Returns dict with tokens_used, cost_usd, model (all optional).
-    """
-    stderr_path = artifacts_dir / f"{step_id}.stderr.log"
-    if not stderr_path.exists():
-        return {}
-
+def _read_text(path: Path) -> str:
+    """Read *path* as UTF-8, returning ``""`` on missing-or-unreadable."""
+    if not path.exists():
+        return ""
     try:
-        content = stderr_path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding="utf-8", errors="replace")
     except OSError:
-        return {}
+        return ""
+
+
+def _extract_cost_fields(data: dict[str, Any], result: dict[str, Any]) -> bool:
+    """Extract token/cost/model fields from a single CLI JSON object.
+
+    Mutates *result* in place.  Returns ``True`` if any recognised cost
+    field was extracted, ``False`` otherwise.  Supports both the
+    ``--output-format json`` shape (``total_cost_usd`` + ``usage`` +
+    ``modelUsage``) and the older streaming shape (``cost_usd`` + flat
+    ``usage`` + ``model``).
+    """
+    matched = False
+
+    usage = data.get("usage")
+    if isinstance(usage, dict):
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        # Cache tokens are still billable input — fold them in so the
+        # token total reflects what the API actually charged for.
+        cache_create = int(usage.get("cache_creation_input_tokens", 0) or 0)
+        cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+        total = input_tokens + output_tokens + cache_create + cache_read
+        if total > 0:
+            result["tokens_used"] = total
+            result["_input_tokens"] = input_tokens + cache_create + cache_read
+            result["_output_tokens"] = output_tokens
+            matched = True
+
+    # Preferred current key, then legacy fallback.
+    for key in ("total_cost_usd", "cost_usd"):
+        if key in data:
+            try:
+                result["cost_usd"] = float(data[key])
+                matched = True
+                break
+            except (TypeError, ValueError):
+                continue
+
+    # ``modelUsage`` is a {model_id: {...}} dict in the json output format.
+    model_usage = data.get("modelUsage")
+    if isinstance(model_usage, dict) and model_usage:
+        # Pick the model that did the most work (largest reported cost,
+        # falling back to first key).  This matches what humans expect to
+        # see attributed to the step.
+        best = max(
+            model_usage.items(),
+            key=lambda kv: float(kv[1].get("costUSD", 0.0)) if isinstance(kv[1], dict) else 0.0,
+        )
+        result["model"] = best[0]
+        matched = True
+    elif "model" in data and isinstance(data["model"], str):
+        result["model"] = data["model"]
+        matched = True
+
+    return matched
+
+
+def _parse_cost_data(artifacts_dir: Path, step_id: str) -> dict[str, Any]:
+    """Parse token/cost/model usage from a completed step's CLI output.
+
+    The ``claude`` CLI writes a single JSON result object to **stdout**
+    when invoked with ``--output-format json``.  We parse that object for
+    ``total_cost_usd``, ``usage`` token counts, and the active model.
+
+    For backward compatibility with older CLI versions or
+    ``--output-format stream-json``, we also fall back to scanning stderr
+    line-by-line for any JSON object containing ``usage`` / ``cost_usd``.
+
+    When token counts are present but no authoritative ``cost_usd``,
+    :func:`swarm.plan.pricing.estimate_cost_usd` is used to produce a
+    fallback estimate.
+
+    If neither source yields any recognisable cost data, a
+    ``cost_unparseable`` warning is logged so the silent-zero failure mode
+    is at least visible in logs.
+
+    Returns a dict with the optional keys ``tokens_used``, ``cost_usd``,
+    ``model``, plus an internal ``cost_estimated`` flag when the cost was
+    derived from the pricing table.  Internal helper keys
+    (``_input_tokens`` / ``_output_tokens``) are stripped before return.
+    """
+    stdout_text = _read_text(artifacts_dir / f"{step_id}.stdout.log")
+    stderr_text = _read_text(artifacts_dir / f"{step_id}.stderr.log")
 
     result: dict[str, Any] = {}
+    matched_any = False
 
-    # Try to find JSON usage data in stderr
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
+    # 1) Preferred source: the entire stdout is one JSON object when the
+    #    CLI was invoked with --output-format json.
+    stdout_stripped = stdout_text.strip()
+    if stdout_stripped:
         try:
-            data = json.loads(line)
-            if "usage" in data:
-                usage = data["usage"]
-                input_tokens = usage.get("input_tokens", 0)
-                output_tokens = usage.get("output_tokens", 0)
-                result["tokens_used"] = input_tokens + output_tokens
-            if "model" in data:
-                result["model"] = data["model"]
-            if "cost_usd" in data:
-                result["cost_usd"] = float(data["cost_usd"])
-        except (json.JSONDecodeError, ValueError, TypeError):
-            continue
+            top = json.loads(stdout_stripped)
+        except json.JSONDecodeError:
+            top = None
+        if isinstance(top, dict):
+            matched_any = _extract_cost_fields(top, result) or matched_any
 
+    # 2) Fallback: scan every line of both streams for embedded JSON
+    #    objects (handles --output-format stream-json and older builds
+    #    that used to emit usage rows on stderr).
+    for stream_text in (stdout_text, stderr_text):
+        if not stream_text:
+            continue
+        for raw_line in stream_text.splitlines():
+            line = raw_line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict):
+                matched_any = _extract_cost_fields(data, result) or matched_any
+
+    # 3) If we have tokens but the CLI did not give us a real dollar
+    #    figure, estimate one from the pricing table.
+    if "tokens_used" in result and "cost_usd" not in result:
+        estimate = estimate_cost_usd(
+            result.get("model", ""),
+            int(result.get("_input_tokens", 0)),
+            int(result.get("_output_tokens", 0)),
+        )
+        if estimate > 0.0:
+            result["cost_usd"] = estimate
+            result["cost_estimated"] = True
+
+    # 4) If nothing recognisable came back from either stream, log a
+    #    warning so the historic silent-zero failure is at least visible.
+    if not matched_any and (stdout_text or stderr_text):
+        logger.warning(
+            "cost_unparseable",
+            step_id=step_id,
+            stdout_bytes=len(stdout_text),
+            stderr_bytes=len(stderr_text),
+        )
+
+    # Strip internal helper keys before returning to callers.
+    result.pop("_input_tokens", None)
+    result.pop("_output_tokens", None)
     return result
 
 
@@ -525,6 +643,68 @@ def execute_foreground(run_state: RunState, step: PlanStep) -> None:
 # Background execution (section 5.3)
 # ---------------------------------------------------------------------------
 
+
+def _record_background_start(
+    run_state: RunState,
+    step_id: str,
+    pid: int,
+    branch_index: int | None = None,
+) -> None:
+    """Persist a :class:`BackgroundStepRecord` to the run log.
+
+    Called whenever a background subprocess (regular ``launch_background``
+    task or a fan-out branch) is spawned.  On crash we walk the surviving
+    records to either reattach polling or mark the step as failed.
+    """
+    record = BackgroundStepRecord(
+        step_id=step_id,
+        pid=pid,
+        started_at=_iso_now(),
+        branch_index=branch_index,
+    )
+    with run_state._lock:
+        # Replace any prior in-flight record for the same step (covers
+        # background retries that re-launch under the same id).
+        run_state.log.background_steps = [
+            b for b in run_state.log.background_steps if b.step_id != step_id
+        ]
+        run_state.log.background_steps.append(record)
+        write_run_log(run_state.log, run_state.log_path)
+
+
+def _record_background_finish(run_state: RunState, step_id: str) -> None:
+    """Remove a :class:`BackgroundStepRecord` once the subprocess exits."""
+    with run_state._lock:
+        before = len(run_state.log.background_steps)
+        run_state.log.background_steps = [
+            b for b in run_state.log.background_steps if b.step_id != step_id
+        ]
+        if len(run_state.log.background_steps) != before:
+            write_run_log(run_state.log, run_state.log_path)
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return True if a process with *pid* exists.
+
+    Uses ``os.kill(pid, 0)`` which sends no signal but raises
+    :class:`ProcessLookupError` if the PID is unknown and
+    :class:`PermissionError` if it exists but we lack signal rights (still
+    counts as alive for resume purposes).  Any other ``OSError`` is treated
+    as "not alive" so we fall back to the safer mark-as-failed path.
+    """
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def launch_background(run_state: RunState, step: PlanStep) -> None:
     """Launch a background step subprocess."""
     prompt = _resolve_step_prompt(run_state.plan, step)
@@ -540,6 +720,7 @@ def launch_background(run_state: RunState, step: PlanStep) -> None:
     )
 
     run_state.background_procs[step.id] = proc
+    _record_background_start(run_state, step.id, proc.pid)
     logger.info("background_launched", step_id=step.id, pid=proc.pid)
 
 
@@ -553,6 +734,7 @@ def reap_background(run_state: RunState) -> None:
 
     for step_id, exit_code in finished:
         run_state.background_procs.pop(step_id)
+        _record_background_finish(run_state, step_id)
 
         # Handle fan-out branch IDs (format: step_id::branch_index)
         if "::" in step_id:
@@ -790,6 +972,9 @@ def handle_fan_out(run_state: RunState, step: PlanStep) -> None:
         )
 
         run_state.background_procs[branch_id] = proc
+        _record_background_start(
+            run_state, branch_id, proc.pid, branch_index=i,
+        )
         logger.info(
             "fan_out_branch_launched",
             step_id=step.id,
@@ -1029,6 +1214,113 @@ def run_critic_loop(run_state: RunState, step: PlanStep) -> CriticResult:
 # Init / finalize
 # ---------------------------------------------------------------------------
 
+def _reconcile_orphan_backgrounds(rs: RunState) -> None:
+    """Reattach or fail surviving background records on resume.
+
+    For each :class:`BackgroundStepRecord` carried over from a prior
+    crashed run we probe the PID with :func:`_pid_alive`:
+
+    * **Live PID, ``on_failure == "skip"``** — kill the orphan and record
+      a skip; the executor would skip on failure anyway.
+    * **Live PID, ``on_failure == "retry"``** — kill the orphan and queue
+      a retry on the next loop iteration so the executor re-launches it
+      with a fresh subprocess we own.
+    * **Live PID, otherwise** — mark the step as failed.  We can't recover
+      the exit status of a process we didn't fork, so the safe action is
+      a loud failure that surfaces the orphan to the operator.
+    * **Dead PID** — also mark as failed (we missed the completion event
+      so we have no way to know whether the work succeeded).
+
+    Fan-out branch records (``base::index``) propagate failure up to the
+    parent fan-out step.
+    """
+    surviving = list(rs.log.background_steps)
+    if not surviving:
+        return
+
+    fan_out_failures: set[str] = set()
+
+    for record in surviving:
+        step_id = record.step_id
+        is_branch = "::" in step_id
+        base_id = step_id.split("::")[0] if is_branch else step_id
+
+        try:
+            step = _find_step(rs.plan, base_id)
+        except ExecutionError:
+            # Plan changed under us — drop the record and move on.
+            continue
+
+        alive = _pid_alive(record.pid)
+        if alive:
+            # Best-effort termination of the orphan so it stops chewing
+            # tokens.  Failure to terminate is non-fatal — the worst case
+            # is a leaked process, which is better than silently spawning
+            # a duplicate or hanging on a PID we don't own.
+            with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                os.kill(record.pid, 15)  # SIGTERM
+            logger.warning(
+                "orphan_background_pid",
+                step_id=step_id,
+                pid=record.pid,
+                action="terminated",
+            )
+
+        if is_branch:
+            fan_out_failures.add(base_id)
+            continue
+
+        if alive and step.on_failure == "retry":
+            attempt = rs.retry_counts.get(step_id, 0)
+            rs.retry_counts[step_id] = attempt + 1
+            rs.retry_after[step_id] = time.monotonic()
+            logger.info(
+                "orphan_background_retry_queued",
+                step_id=step_id,
+                attempt=attempt + 1,
+            )
+        elif step.on_failure == "skip":
+            record_skip(
+                rs,
+                step,
+                attempt=0,
+                message=f"Orphan background PID {record.pid} from prior run",
+            )
+        else:
+            record_failure(
+                rs,
+                step,
+                attempt=0,
+                message=(
+                    f"Orphan background PID {record.pid} from prior run "
+                    f"(alive={alive}); cannot recover exit status"
+                ),
+            )
+
+    for base_id in fan_out_failures:
+        try:
+            fan_step = _find_step(rs.plan, base_id)
+        except ExecutionError:
+            continue
+        if (
+            base_id in rs.completed
+            or base_id in rs.failed
+            or base_id in rs.skipped
+        ):
+            continue
+        record_failure(
+            rs,
+            fan_step,
+            attempt=0,
+            message="Orphan fan-out branches from prior run; cannot recover",
+        )
+
+    # All records have been reconciled — clear them.
+    with rs._lock:
+        rs.log.background_steps = []
+        write_run_log(rs.log, rs.log_path)
+
+
 def init_run_state(
     plan: Plan,
     plan_path: Path,
@@ -1045,58 +1337,84 @@ def init_run_state(
 
     Returns:
         A new or resumed :class:`RunState`.
+
+    Raises:
+        RunLogCorruptError: When the existing run log is corrupt and
+            neither a ``.prev`` backup nor an ``events.ndjson`` file
+            is available to reconstruct it.  Surfaces loudly rather than
+            silently restarting (which would re-run completed steps).
     """
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    # Attempt to load existing run log for resume
-    if run_log_path.exists():
-        try:
-            log = load_run_log(run_log_path)
-        except (json.JSONDecodeError, KeyError):
-            log = None
+    backup_path = run_log_path.with_suffix(run_log_path.suffix + ".prev")
+    events_path = artifacts_dir / "events.ndjson"
+    have_state = (
+        run_log_path.exists() or backup_path.exists() or events_path.exists()
+    )
 
-        if log is not None:
-            rs = RunState(
-                plan=plan,
-                log=log,
-                log_path=run_log_path,
-                artifacts_dir=artifacts_dir,
-            )
-            # Reconstruct tracking from log
-            for outcome in log.steps:
-                if outcome.status == "completed":
-                    rs.completed.add(outcome.step_id)
-                    rs.step_outcomes[outcome.step_id] = "completed"
-                elif outcome.status == "failed":
-                    rs.failed.add(outcome.step_id)
-                    rs.step_outcomes[outcome.step_id] = "failed"
-                elif outcome.status == "skipped":
-                    rs.skipped.add(outcome.step_id)
-                    rs.step_outcomes[outcome.step_id] = "skipped"
+    log: RunLog | None = None
+    if have_state:
+        # load_run_log_resilient will:
+        #   1) parse run_log_path
+        #   2) fall back to <run_log_path>.prev
+        #   3) reconstruct from events.ndjson
+        #   4) raise RunLogCorruptError if all three fail
+        # We deliberately let RunLogCorruptError propagate so the operator
+        # is told loudly rather than silently restarting from scratch.
+        log = load_run_log_resilient(run_log_path, events_path=events_path)
+        # Backfill plan metadata if reconstruction left them empty.
+        if not log.plan_path:
+            log.plan_path = str(plan_path)
+        if not log.plan_version:
+            log.plan_version = plan.version
 
-            # Reconstruct replan_count from run log
-            rs.replan_count = log.replan_count
+    if log is not None:
+        rs = RunState(
+            plan=plan,
+            log=log,
+            log_path=run_log_path,
+            artifacts_dir=artifacts_dir,
+        )
+        # Reconstruct tracking from log
+        for outcome in log.steps:
+            if outcome.status == "completed":
+                rs.completed.add(outcome.step_id)
+                rs.step_outcomes[outcome.step_id] = "completed"
+            elif outcome.status == "failed":
+                rs.failed.add(outcome.step_id)
+                rs.step_outcomes[outcome.step_id] = "failed"
+            elif outcome.status == "skipped":
+                rs.skipped.add(outcome.step_id)
+                rs.step_outcomes[outcome.step_id] = "skipped"
 
-            # If resuming from a checkpoint, mark the checkpoint step done
-            if log.checkpoint_step_id:
-                ckpt_id = log.checkpoint_step_id
-                if ckpt_id not in rs.completed:
-                    rs.completed.add(ckpt_id)
-                    rs.step_outcomes[ckpt_id] = "completed"
-                    rs.log.steps.append(
-                        StepOutcome(
-                            step_id=ckpt_id,
-                            status="completed",
-                            started_at=_iso_now(),
-                            finished_at=_iso_now(),
-                            message="Checkpoint resumed",
-                        )
+        # Reconstruct replan_count from run log
+        rs.replan_count = log.replan_count
+
+        # If resuming from a checkpoint, mark the checkpoint step done
+        if log.checkpoint_step_id:
+            ckpt_id = log.checkpoint_step_id
+            if ckpt_id not in rs.completed:
+                rs.completed.add(ckpt_id)
+                rs.step_outcomes[ckpt_id] = "completed"
+                rs.log.steps.append(
+                    StepOutcome(
+                        step_id=ckpt_id,
+                        status="completed",
+                        started_at=_iso_now(),
+                        finished_at=_iso_now(),
+                        message="Checkpoint resumed",
                     )
-                log.checkpoint_step_id = ""
+                )
+            log.checkpoint_step_id = ""
 
-            log.status = "running"
-            write_run_log(log, run_log_path)
-            return rs
+        log.status = "running"
+        write_run_log(log, run_log_path)
+
+        # Reconcile any background subprocesses that were in-flight when
+        # the prior executor was killed — must run AFTER the log is in a
+        # consistent "running" state.
+        _reconcile_orphan_backgrounds(rs)
+        return rs
 
     # Fresh run
     now = _iso_now()

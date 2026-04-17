@@ -69,31 +69,37 @@ def seed_base_agents(registry: RegistryAPI | None = None) -> SeedSummary:
         A :class:`SeedSummary` dict with ``created``, ``updated``, and
         ``unchanged`` lists of agent names.
     """
+    owned_registry = False
     if registry is None:
         config = load_config()
         registry = RegistryAPI(config.base_dir / "registry.db")
+        owned_registry = True
 
     summary: SeedSummary = {"created": [], "updated": [], "unchanged": []}
 
-    for spec in ALL_BASE_AGENTS:
-        name = str(spec["name"])
-        system_prompt = str(spec["system_prompt"])
-        agent_id = _catalog_id(name)
+    try:
+        for spec in ALL_BASE_AGENTS:
+            name = str(spec["name"])
+            system_prompt = str(spec["system_prompt"])
+            agent_id = _catalog_id(name)
 
-        existing = registry.get(agent_id)
+            existing = registry.get(agent_id)
 
-        if existing is None:
-            # First time — insert with deterministic ID
-            _insert_catalog_agent(registry, agent_id, spec)
-            summary["created"].append(name)
-        elif existing.system_prompt == system_prompt:
-            # Already current — nothing to do
-            summary["unchanged"].append(name)
-        else:
-            # Base agent was updated in a new release — patch the stored record
-            _update_catalog_agent(registry, agent_id, system_prompt)
-            _flag_clones(registry, agent_id, name)
-            summary["updated"].append(name)
+            if existing is None:
+                # First time — insert with deterministic ID
+                _insert_catalog_agent(registry, agent_id, spec)
+                summary["created"].append(name)
+            elif existing.system_prompt == system_prompt:
+                # Already current — nothing to do
+                summary["unchanged"].append(name)
+            else:
+                # Base agent was updated in a new release — patch the stored record
+                _update_catalog_agent(registry, agent_id, system_prompt)
+                _flag_clones(registry, agent_id, name)
+                summary["updated"].append(name)
+    finally:
+        if owned_registry:
+            registry.close()
 
     return summary
 

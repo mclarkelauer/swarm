@@ -7,6 +7,7 @@ and catalog structural validity.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,17 +29,24 @@ from swarm.registry.api import RegistryAPI
 
 
 @pytest.fixture()
-def registry(tmp_path: Path) -> RegistryAPI:
+def registry(tmp_path: Path) -> Iterator[RegistryAPI]:
     """Return an isolated registry backed by a tmp_path database."""
-    return RegistryAPI(tmp_path / "registry.db")
+    api = RegistryAPI(tmp_path / "registry.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 @pytest.fixture()
-def seeded_registry(tmp_path: Path) -> RegistryAPI:
+def seeded_registry(tmp_path: Path) -> Iterator[RegistryAPI]:
     """Return a registry with the full real catalog already seeded."""
     reg = RegistryAPI(tmp_path / "seeded.db")
     seed_base_agents(reg)
-    return reg
+    try:
+        yield reg
+    finally:
+        reg.close()
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -90,36 +91,48 @@ class TestInitFts:
 
     def test_returns_true_when_fts5_available(self, tmp_path: Path) -> None:
         conn, fts_available = init_registry_db(tmp_path / "registry.db")
-        # On standard Python/macOS/Linux builds, FTS5 is compiled in
-        assert fts_available is True
+        try:
+            # On standard Python/macOS/Linux builds, FTS5 is compiled in
+            assert fts_available is True
+        finally:
+            conn.close()
 
     def test_creates_fts_virtual_table(self, tmp_path: Path) -> None:
         conn, _ = init_registry_db(tmp_path / "registry.db")
-        cur = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents_fts'"
-        )
-        assert cur.fetchone() is not None
+        try:
+            cur = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='agents_fts'"
+            )
+            assert cur.fetchone() is not None
+        finally:
+            conn.close()
 
     def test_creates_sync_triggers(self, tmp_path: Path) -> None:
         conn, _ = init_registry_db(tmp_path / "registry.db")
-        cur = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
-        )
-        trigger_names = {row[0] for row in cur.fetchall()}
-        expected = {
-            "agents_fts_insert",
-            "agents_fts_update_delete",
-            "agents_fts_update_insert",
-            "agents_fts_delete",
-        }
-        assert expected.issubset(trigger_names)
+        try:
+            cur = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+            trigger_names = {row[0] for row in cur.fetchall()}
+            expected = {
+                "agents_fts_insert",
+                "agents_fts_update_delete",
+                "agents_fts_update_insert",
+                "agents_fts_delete",
+            }
+            assert expected.issubset(trigger_names)
+        finally:
+            conn.close()
 
     def test_idempotent_fts_init(self, tmp_path: Path) -> None:
         """Calling _init_fts multiple times does not raise."""
         conn, fts1 = init_registry_db(tmp_path / "registry.db")
-        fts2 = _init_fts(conn)
-        assert fts1 is True
-        assert fts2 is True
+        try:
+            fts2 = _init_fts(conn)
+            assert fts1 is True
+            assert fts2 is True
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +144,12 @@ class TestFtsSearch:
     """Tests for RegistryAPI.search() using FTS5."""
 
     @pytest.fixture()
-    def api(self, tmp_path: Path) -> RegistryAPI:
-        return RegistryAPI(tmp_path / "registry.db")
+    def api(self, tmp_path: Path) -> Iterator[RegistryAPI]:
+        api = RegistryAPI(tmp_path / "registry.db")
+        try:
+            yield api
+        finally:
+            api.close()
 
     def test_search_by_name(self, api: RegistryAPI) -> None:
         api.create("code-reviewer", "Reviews code.", [], [])
@@ -237,8 +254,12 @@ class TestSearchWithSnippets:
     """Tests for RegistryAPI.search_with_snippets()."""
 
     @pytest.fixture()
-    def api(self, tmp_path: Path) -> RegistryAPI:
-        return RegistryAPI(tmp_path / "registry.db")
+    def api(self, tmp_path: Path) -> Iterator[RegistryAPI]:
+        api = RegistryAPI(tmp_path / "registry.db")
+        try:
+            yield api
+        finally:
+            api.close()
 
     def test_returns_dicts_with_expected_keys(self, api: RegistryAPI) -> None:
         api.create("code-reviewer", "Reviews code.", [], [], tags=["review"])
@@ -303,11 +324,14 @@ class TestLikeFallback:
     """Tests for the _search_like fallback path."""
 
     @pytest.fixture()
-    def api(self, tmp_path: Path) -> RegistryAPI:
+    def api(self, tmp_path: Path) -> Iterator[RegistryAPI]:
         api = RegistryAPI(tmp_path / "registry.db")
         # Force LIKE fallback
         api._fts_available = False
-        return api
+        try:
+            yield api
+        finally:
+            api.close()
 
     def test_search_like_by_name(self, api: RegistryAPI) -> None:
         api.create("code-reviewer", "Reviews code.", [], [])
@@ -342,8 +366,14 @@ class TestRegistrySearchRankedTool:
     """Tests for the registry_search_ranked MCP tool."""
 
     @pytest.fixture(autouse=True)
-    def _setup_state(self, tmp_path: Path) -> None:
+    def _setup_state(self, tmp_path: Path) -> Iterator[None]:
         state.registry_api = RegistryAPI(tmp_path / "registry.db")
+        try:
+            yield
+        finally:
+            assert state.registry_api is not None
+            state.registry_api.close()
+            state.registry_api = None
 
     def test_returns_json_array(self) -> None:
         assert state.registry_api is not None
@@ -392,8 +422,12 @@ class TestBm25Ordering:
     """Tests verifying BM25 ranking behavior."""
 
     @pytest.fixture()
-    def api(self, tmp_path: Path) -> RegistryAPI:
-        return RegistryAPI(tmp_path / "registry.db")
+    def api(self, tmp_path: Path) -> Iterator[RegistryAPI]:
+        api = RegistryAPI(tmp_path / "registry.db")
+        try:
+            yield api
+        finally:
+            api.close()
 
     def test_name_match_ranked_higher_than_prompt_match(self, api: RegistryAPI) -> None:
         """An agent whose name contains the search term should rank higher

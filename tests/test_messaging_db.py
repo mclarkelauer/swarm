@@ -97,13 +97,15 @@ class TestInitMessageDb:
 
     def test_check_constraint_rejects_invalid_type(self, tmp_path: Path) -> None:
         conn = init_message_db(tmp_path / "messages.db")
-        with pytest.raises(sqlite3.IntegrityError):
-            conn.execute(
-                "INSERT INTO messages (id, from_agent, to_agent, message_type) "
-                "VALUES (?, ?, ?, ?)",
-                ("id1", "a", "b", "invalid_type"),
-            )
-        conn.close()
+        try:
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO messages (id, from_agent, to_agent, message_type) "
+                    "VALUES (?, ?, ?, ?)",
+                    ("id1", "a", "b", "invalid_type"),
+                )
+        finally:
+            conn.close()
 
     def test_check_constraint_allows_valid_types(self, tmp_path: Path) -> None:
         conn = init_message_db(tmp_path / "messages.db")

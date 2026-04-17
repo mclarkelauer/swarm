@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from swarm.plan.events import EventLog, PlanEvent
 from swarm.plan.executor import (
     RunState,
@@ -303,7 +305,19 @@ class TestInitRunState:
         # checkpoint_step_id cleared
         assert rs.log.checkpoint_step_id == ""
 
-    def test_corrupt_run_log_creates_fresh(self, tmp_path: Path) -> None:
+    def test_corrupt_run_log_raises_when_no_recovery_source(
+        self, tmp_path: Path
+    ) -> None:
+        """Corruption with no .prev backup and no events.ndjson must raise.
+
+        The old behavior was to silently treat the corrupt log as a fresh
+        run, which re-executed every previously completed step.  We now
+        surface this loudly so the operator can decide how to proceed.
+        """
+        import pytest
+
+        from swarm.errors import RunLogCorruptError
+
         plan = _plan(_task("s1"))
         plan_path = tmp_path / "plan.json"
         plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
@@ -311,10 +325,8 @@ class TestInitRunState:
         log_path.write_text("not valid json", encoding="utf-8")
         art_dir = tmp_path / "artifacts"
 
-        rs = init_run_state(plan, plan_path, art_dir, log_path)
-
-        assert rs.completed == set()
-        assert rs.log.status == "running"
+        with pytest.raises(RunLogCorruptError):
+            init_run_state(plan, plan_path, art_dir, log_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1046,14 +1058,14 @@ class TestBuildAgentSystemPrompt:
         from swarm.memory.api import MemoryAPI
         from swarm.plan.executor import _build_agent_system_prompt
 
-        mem_api = MemoryAPI(tmp_path / "mem.db")
-        mem_api.store("test-agent", "Always use pytest fixtures", memory_type="procedural")
+        with MemoryAPI(tmp_path / "mem.db") as mem_api:
+            mem_api.store("test-agent", "Always use pytest fixtures", memory_type="procedural")
 
-        step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="test-agent")
-        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+            step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="test-agent")
+            result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
 
-        assert "<agent-memory>" in result
-        assert "Always use pytest fixtures" in result
+            assert "<agent-memory>" in result
+            assert "Always use pytest fixtures" in result
 
     def test_without_memory_api_no_memory_block(self, tmp_path: Path) -> None:
         from swarm.plan.executor import _build_agent_system_prompt
@@ -1067,25 +1079,25 @@ class TestBuildAgentSystemPrompt:
         from swarm.memory.api import MemoryAPI
         from swarm.plan.executor import _build_agent_system_prompt
 
-        mem_api = MemoryAPI(tmp_path / "mem.db")
-        mem_api.store("test-agent", "some memory")
+        with MemoryAPI(tmp_path / "mem.db") as mem_api:
+            mem_api.store("test-agent", "some memory")
 
-        step = PlanStep(id="s1", type="task", prompt="do stuff")
-        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+            step = PlanStep(id="s1", type="task", prompt="do stuff")
+            result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
 
-        assert "<agent-memory>" not in result
+            assert "<agent-memory>" not in result
 
     def test_empty_memories_no_block(self, tmp_path: Path) -> None:
         from swarm.memory.api import MemoryAPI
         from swarm.plan.executor import _build_agent_system_prompt
 
-        mem_api = MemoryAPI(tmp_path / "mem.db")
-        # No memories stored for this agent
+        with MemoryAPI(tmp_path / "mem.db") as mem_api:
+            # No memories stored for this agent
 
-        step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="other-agent")
-        result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
+            step = PlanStep(id="s1", type="task", prompt="do stuff", agent_type="other-agent")
+            result = _build_agent_system_prompt(step, tmp_path, memory_api=mem_api)
 
-        assert "<agent-memory>" not in result
+            assert "<agent-memory>" not in result
 
 
 class TestTimeoutPassthrough:
@@ -1284,6 +1296,92 @@ class TestParseCostData:
         assert result == {"model": "claude-3-sonnet"}
         assert "tokens_used" not in result
 
+    def test_parse_cost_data_real_cli_json_format(self, tmp_path: Path) -> None:
+        """Parse the canonical ``--output-format json`` payload from stdout.
+
+        This is the actual shape the ``claude`` CLI emits — a single JSON
+        object with ``total_cost_usd``, ``usage`` (with cache token
+        sub-fields), and a ``modelUsage`` dict keyed by model id.
+        """
+        payload = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "Hi!",
+            "total_cost_usd": 0.24201124999999998,
+            "usage": {
+                "input_tokens": 6,
+                "cache_creation_input_tokens": 38685,
+                "cache_read_input_tokens": 0,
+                "output_tokens": 8,
+            },
+            "modelUsage": {
+                "claude-opus-4-7[1m]": {
+                    "inputTokens": 6,
+                    "outputTokens": 8,
+                    "costUSD": 0.24201124999999998,
+                },
+            },
+        }
+        (tmp_path / "s1.stdout.log").write_text(json.dumps(payload), encoding="utf-8")
+
+        result = _parse_cost_data(tmp_path, "s1")
+
+        assert result["model"] == "claude-opus-4-7[1m]"
+        assert result["cost_usd"] == 0.24201124999999998
+        # tokens_used folds in cache + input + output so the total
+        # reflects what the API actually billed.
+        assert result["tokens_used"] == 6 + 8 + 38685
+        assert result.get("cost_estimated") is not True
+
+    def test_parse_cost_data_estimates_from_pricing_when_cost_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """When tokens are reported but no cost_usd, fall back to pricing.py."""
+        payload = {
+            "type": "result",
+            "result": "ok",
+            "usage": {"input_tokens": 1_000_000, "output_tokens": 500_000},
+            "modelUsage": {"claude-sonnet-4-5": {"costUSD": 0.0}},
+        }
+        (tmp_path / "s1.stdout.log").write_text(json.dumps(payload), encoding="utf-8")
+
+        result = _parse_cost_data(tmp_path, "s1")
+
+        # 1M input @ $3 + 0.5M output @ $15 = $3 + $7.5 = $10.5
+        assert result["model"] == "claude-sonnet-4-5"
+        assert result["tokens_used"] == 1_500_000
+        assert result["cost_usd"] == 10.5
+        assert result["cost_estimated"] is True
+
+    def test_parse_cost_data_warns_when_unparseable(self, tmp_path: Path) -> None:
+        """Log ``cost_unparseable`` when output exists but no recognised fields."""
+        import structlog
+
+        (tmp_path / "s1.stdout.log").write_text("Hi!\n", encoding="utf-8")
+        (tmp_path / "s1.stderr.log").write_text("warning: foo\n", encoding="utf-8")
+
+        # ``capture_logs`` works regardless of how structlog has been
+        # configured by other tests/fixtures, so it's the most robust
+        # way to assert on emitted events.
+        with structlog.testing.capture_logs() as captured:
+            result = _parse_cost_data(tmp_path, "s1")
+
+        assert result == {}
+        events = [e for e in captured if e.get("event") == "cost_unparseable"]
+        assert events, f"expected a cost_unparseable event, got {captured!r}"
+        assert events[0]["step_id"] == "s1"
+        assert events[0]["log_level"] == "warning"
+
+    def test_parse_cost_data_silent_when_no_output(self, tmp_path: Path) -> None:
+        """No warning is emitted when both stdout and stderr are absent.
+
+        A missing log file means the subprocess never started or its
+        output was not captured — there is nothing to flag.
+        """
+        result = _parse_cost_data(tmp_path, "missing")
+        assert result == {}
+
 
 class TestRecordSuccessWithCostData:
     def test_cost_data_recorded_in_outcome(self, tmp_path: Path) -> None:
@@ -1421,3 +1519,308 @@ class TestNoEventsWhenLogNone:
         record_success(rs, plan.steps[0], attempt=0, message="done")
         # The run state works fine without event logging
         assert "s1" in rs.completed
+
+
+# ---------------------------------------------------------------------------
+# Background subprocess persistence (Bug 1)
+# ---------------------------------------------------------------------------
+
+
+class TestBackgroundStepPersistence:
+    """A launched background subprocess records a BackgroundStepRecord
+    in the run log; when it completes the record is removed.
+    """
+
+    @patch("swarm.plan.executor.launch_agent")
+    def test_launch_background_writes_record(
+        self, mock_launch: MagicMock, tmp_path: Path,
+    ) -> None:
+        from swarm.plan.executor import launch_background
+        from swarm.plan.run_log import load_run_log
+
+        proc = _mock_popen(0)
+        proc.pid = 99001
+        mock_launch.return_value = proc
+
+        step = _task("bg1", spawn_mode="background")
+        plan = _plan(step)
+        rs = _make_run_state(plan, tmp_path)
+
+        launch_background(rs, step)
+
+        assert len(rs.log.background_steps) == 1
+        record = rs.log.background_steps[0]
+        assert record.step_id == "bg1"
+        assert record.pid == 99001
+
+        loaded = load_run_log(rs.log_path)
+        assert len(loaded.background_steps) == 1
+        assert loaded.background_steps[0].pid == 99001
+
+    @patch("swarm.plan.executor.launch_agent")
+    def test_reap_background_removes_record(
+        self, mock_launch: MagicMock, tmp_path: Path,
+    ) -> None:
+        from swarm.plan.executor import launch_background, reap_background
+        from swarm.plan.run_log import load_run_log
+
+        proc = _mock_popen()
+        proc.pid = 99002
+        proc.poll.return_value = 0
+        mock_launch.return_value = proc
+
+        step = _task("bg2", spawn_mode="background")
+        plan = _plan(step)
+        rs = _make_run_state(plan, tmp_path)
+        launch_background(rs, step)
+        assert len(rs.log.background_steps) == 1
+
+        reap_background(rs)
+
+        assert rs.log.background_steps == []
+        loaded = load_run_log(rs.log_path)
+        assert loaded.background_steps == []
+
+    @patch("swarm.plan.executor.launch_agent")
+    def test_handle_fan_out_records_each_branch(
+        self, mock_launch: MagicMock, tmp_path: Path,
+    ) -> None:
+        from swarm.plan.executor import handle_fan_out
+        from swarm.plan.models import FanOutBranch, FanOutConfig
+
+        procs = [_mock_popen(), _mock_popen()]
+        procs[0].pid = 8001
+        procs[1].pid = 8002
+        mock_launch.side_effect = procs
+
+        step = PlanStep(
+            id="fan",
+            type="fan_out",
+            prompt="run branches",
+            agent_type="dispatcher",
+            fan_out_config=FanOutConfig(
+                branches=[
+                    FanOutBranch(prompt="b0", agent_type="worker"),
+                    FanOutBranch(prompt="b1", agent_type="worker"),
+                ],
+            ),
+        )
+        plan = _plan(step)
+        rs = _make_run_state(plan, tmp_path)
+
+        handle_fan_out(rs, step)
+
+        ids = sorted(b.step_id for b in rs.log.background_steps)
+        assert ids == ["fan::0", "fan::1"]
+        indexed = {b.step_id: b for b in rs.log.background_steps}
+        assert indexed["fan::0"].branch_index == 0
+        assert indexed["fan::1"].branch_index == 1
+        assert indexed["fan::0"].pid == 8001
+        assert indexed["fan::1"].pid == 8002
+
+
+class TestOrphanBackgroundReconciliation:
+    """init_run_state probes surviving BackgroundStepRecords and either
+    queues a retry, records a skip, or records a failure.
+    """
+
+    def _seed_orphan(
+        self,
+        tmp_path: Path,
+        on_failure: str,
+        pid: int,
+    ) -> tuple[Plan, Path, Path]:
+        from swarm.plan.run_log import BackgroundStepRecord
+
+        step = _task("bg", spawn_mode="background", on_failure=on_failure)
+        plan = _plan(step)
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+
+        log_path = tmp_path / "run_log.json"
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        log = RunLog(
+            plan_path=str(plan_path),
+            plan_version=1,
+            started_at="t0",
+            status="running",
+            background_steps=[
+                BackgroundStepRecord(step_id="bg", pid=pid, started_at="t0"),
+            ],
+        )
+        write_run_log(log, log_path)
+        return plan, plan_path, log_path
+
+    def test_dead_pid_records_failure_for_stop_policy(
+        self, tmp_path: Path,
+    ) -> None:
+        with patch("swarm.plan.executor._pid_alive", return_value=False):
+            plan, plan_path, log_path = self._seed_orphan(
+                tmp_path, on_failure="stop", pid=999999,
+            )
+            rs = init_run_state(
+                plan, plan_path, tmp_path / "artifacts", log_path,
+            )
+
+        assert "bg" in rs.failed
+        assert rs.log.background_steps == []
+        assert any(
+            "Orphan background PID" in s.message for s in rs.log.steps
+        )
+
+    def test_live_pid_with_skip_policy_records_skip(
+        self, tmp_path: Path,
+    ) -> None:
+        with patch("swarm.plan.executor._pid_alive", return_value=True), \
+             patch("swarm.plan.executor.os.kill") as mock_kill:
+            plan, plan_path, log_path = self._seed_orphan(
+                tmp_path, on_failure="skip", pid=12345,
+            )
+            rs = init_run_state(
+                plan, plan_path, tmp_path / "artifacts", log_path,
+            )
+
+        assert "bg" in rs.skipped
+        assert rs.log.background_steps == []
+        mock_kill.assert_called_with(12345, 15)
+
+    def test_live_pid_with_retry_policy_queues_retry(
+        self, tmp_path: Path,
+    ) -> None:
+        with patch("swarm.plan.executor._pid_alive", return_value=True), \
+             patch("swarm.plan.executor.os.kill"):
+            plan, plan_path, log_path = self._seed_orphan(
+                tmp_path, on_failure="retry", pid=12345,
+            )
+            rs = init_run_state(
+                plan, plan_path, tmp_path / "artifacts", log_path,
+            )
+
+        assert "bg" not in rs.failed
+        assert "bg" not in rs.completed
+        assert "bg" in rs.retry_after
+        assert rs.retry_counts.get("bg") == 1
+        assert rs.log.background_steps == []
+
+    def test_fan_out_branch_orphan_fails_parent(
+        self, tmp_path: Path,
+    ) -> None:
+        from swarm.plan.models import FanOutBranch, FanOutConfig
+        from swarm.plan.run_log import BackgroundStepRecord
+
+        step = PlanStep(
+            id="fan",
+            type="fan_out",
+            prompt="x",
+            agent_type="dispatcher",
+            fan_out_config=FanOutConfig(
+                branches=[
+                    FanOutBranch(prompt="b0", agent_type="w"),
+                ],
+            ),
+        )
+        plan = _plan(step)
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+
+        log_path = tmp_path / "run_log.json"
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+        log = RunLog(
+            plan_path=str(plan_path),
+            plan_version=1,
+            started_at="t0",
+            status="running",
+            background_steps=[
+                BackgroundStepRecord(
+                    step_id="fan::0", pid=999999, started_at="t0",
+                    branch_index=0,
+                ),
+            ],
+        )
+        write_run_log(log, log_path)
+
+        with patch("swarm.plan.executor._pid_alive", return_value=False):
+            rs = init_run_state(plan, plan_path, art_dir, log_path)
+
+        assert "fan" in rs.failed
+        assert rs.log.background_steps == []
+
+
+# ---------------------------------------------------------------------------
+# Run-log corruption recovery (Bug 2)
+# ---------------------------------------------------------------------------
+
+
+class TestInitRunStateCorruptionRecovery:
+    """Resume must recover via .prev backup or events.ndjson before
+    falling back to RunLogCorruptError — never silently treat as fresh.
+    """
+
+    def _write_plan(self, tmp_path: Path) -> tuple[Plan, Path]:
+        plan = _plan(_task("s1"), _task("s2", depends_on=("s1",)))
+        plan_path = tmp_path / "plan.json"
+        plan_path.write_text(json.dumps(plan.to_dict()), encoding="utf-8")
+        return plan, plan_path
+
+    def test_recovers_from_prev_backup(self, tmp_path: Path) -> None:
+        plan, plan_path = self._write_plan(tmp_path)
+        log_path = tmp_path / "run_log.json"
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        log = RunLog(
+            plan_path=str(plan_path), plan_version=1, started_at="t0",
+            steps=[StepOutcome(
+                step_id="s1", status="completed",
+                started_at="t0", finished_at="t1",
+            )],
+        )
+        write_run_log(log, log_path)
+        log.steps.append(StepOutcome(
+            step_id="s2", status="completed",
+            started_at="t1", finished_at="t2",
+        ))
+        write_run_log(log, log_path)
+
+        # Simulate a SIGKILL during os.replace by corrupting the primary.
+        log_path.write_text("not valid json {")
+
+        rs = init_run_state(plan, plan_path, art_dir, log_path)
+
+        # The .prev held the snapshot with s1 only.  Critically we did NOT
+        # silently treat this as a fresh run.
+        assert "s1" in rs.completed
+        assert "s2" not in rs.completed
+
+    def test_recovers_from_events_when_no_backup(
+        self, tmp_path: Path,
+    ) -> None:
+        plan, plan_path = self._write_plan(tmp_path)
+        log_path = tmp_path / "run_log.json"
+        art_dir = tmp_path / "artifacts"
+        art_dir.mkdir(parents=True, exist_ok=True)
+
+        log_path.write_text("garbage")
+        EventLog(art_dir / "events.ndjson").emit(
+            PlanEvent(event_type="step_completed", step_id="s1"),
+        )
+
+        rs = init_run_state(plan, plan_path, art_dir, log_path)
+
+        assert "s1" in rs.completed
+
+    def test_raises_when_no_recovery_source_at_all(
+        self, tmp_path: Path,
+    ) -> None:
+        from swarm.errors import RunLogCorruptError
+
+        plan, plan_path = self._write_plan(tmp_path)
+        log_path = tmp_path / "run_log.json"
+        log_path.write_text("not valid")
+        art_dir = tmp_path / "artifacts"
+
+        with pytest.raises(RunLogCorruptError):
+            init_run_state(plan, plan_path, art_dir, log_path)

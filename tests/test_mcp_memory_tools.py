@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -20,8 +21,14 @@ from swarm.mcp.memory_tools import (
 
 
 @pytest.fixture(autouse=True)
-def _setup_state(tmp_path: Path) -> None:
+def _setup_state(tmp_path: Path) -> Iterator[None]:
     state.memory_api = MemoryAPI(tmp_path / "memory.db")
+    try:
+        yield
+    finally:
+        assert state.memory_api is not None
+        state.memory_api.close()
+        state.memory_api = None
 
 
 class TestMemoryStore:

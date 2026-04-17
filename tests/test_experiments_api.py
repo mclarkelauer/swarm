@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,12 @@ from swarm.experiments.api import ExperimentAPI
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> ExperimentAPI:
-    return ExperimentAPI(tmp_path / "experiments.db")
+def api(tmp_path: Path) -> Iterator[ExperimentAPI]:
+    api = ExperimentAPI(tmp_path / "experiments.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestCreateExperiment:

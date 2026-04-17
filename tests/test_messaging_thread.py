@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,12 @@ from swarm.messaging.api import MessageAPI
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> MessageAPI:
-    return MessageAPI(tmp_path / "msg.db")
+def api(tmp_path: Path) -> Iterator[MessageAPI]:
+    api = MessageAPI(tmp_path / "msg.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestGetThread:

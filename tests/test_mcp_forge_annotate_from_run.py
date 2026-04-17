@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -61,10 +62,19 @@ def _outcome(step_id: str, status: str, message: str = "") -> StepOutcome:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _setup_state(tmp_path: Path) -> None:
+def _setup_state(tmp_path: Path) -> Iterator[None]:
     db = tmp_path / "registry.db"
     state.registry_api = RegistryAPI(db)
     state.forge_api = ForgeAPI(db, tmp_path / "forge")
+    try:
+        yield
+    finally:
+        assert state.registry_api is not None
+        state.registry_api.close()
+        assert state.forge_api is not None
+        state.forge_api.close()
+        state.registry_api = None
+        state.forge_api = None
 
 
 # ---------------------------------------------------------------------------

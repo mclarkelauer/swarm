@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,9 +23,13 @@ from swarm.registry.api import RegistryAPI
 
 
 @pytest.fixture()
-def registry(tmp_path: Path) -> RegistryAPI:
+def registry(tmp_path: Path) -> Iterator[RegistryAPI]:
     """Return an isolated registry backed by a tmp_path database."""
-    return RegistryAPI(tmp_path / "registry.db")
+    api = RegistryAPI(tmp_path / "registry.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 _MINIMAL_CATALOG: list[dict[str, object]] = [

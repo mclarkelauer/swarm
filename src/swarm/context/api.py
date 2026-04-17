@@ -125,3 +125,13 @@ class SharedContextAPI:
         )
         self._conn.commit()
         return cur.rowcount
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
+    def __enter__(self) -> SharedContextAPI:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

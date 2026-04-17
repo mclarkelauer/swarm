@@ -308,3 +308,13 @@ class ExperimentAPI:
             }
             for row in cur.fetchall()
         ]
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        self._conn.close()
+
+    def __enter__(self) -> ExperimentAPI:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

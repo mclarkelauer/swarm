@@ -6,7 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from swarm.cli._helpers import get_registry
+from swarm.cli._helpers import open_registry
 
 
 @click.group()
@@ -17,8 +17,8 @@ def registry() -> None:
 @registry.command("list")
 def list_agents() -> None:
     """List all registered agent definitions."""
-    api = get_registry()
-    agents = api.list_agents()
+    with open_registry() as api:
+        agents = api.list_agents()
     console = Console()
     if not agents:
         console.print("[dim]No agents registered.[/dim]")
@@ -37,8 +37,8 @@ def list_agents() -> None:
 @click.argument("query")
 def search(query: str) -> None:
     """Search agent definitions by name or prompt."""
-    api = get_registry()
-    results = api.search(query)
+    with open_registry() as api:
+        results = api.search(query)
     console = Console()
     if not results:
         console.print(f"[dim]No agents matching '{query}'.[/dim]")
@@ -60,13 +60,13 @@ def inspect(identifier: str) -> None:
 
     IDENTIFIER can be an agent name or UUID.
     """
-    api = get_registry()
-    try:
-        defn = api.resolve_agent(identifier)
-        info = api.inspect(defn.id)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1) from e
+    with open_registry() as api:
+        try:
+            defn = api.resolve_agent(identifier)
+            info = api.inspect(defn.id)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from e
     console = Console()
     console.print(f"[bold]Name:[/bold] {info['name']}")
     console.print(f"[bold]ID:[/bold] {info['id']}")
@@ -88,13 +88,13 @@ def remove(identifier: str) -> None:
 
     IDENTIFIER can be an agent name or UUID.
     """
-    api = get_registry()
-    try:
-        defn = api.resolve_agent(identifier)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1) from e
-    api.remove(defn.id)
+    with open_registry() as api:
+        try:
+            defn = api.resolve_agent(identifier)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from e
+        api.remove(defn.id)
     click.echo(f"Removed agent {defn.name} ({defn.id})")
 
 
@@ -105,10 +105,10 @@ def remove(identifier: str) -> None:
 @click.option("--permissions", default="", help="Comma-separated permissions")
 def create(name: str, prompt: str, tools: str, permissions: str) -> None:
     """Create a new agent definition."""
-    api = get_registry()
-    tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
-    perm_list = [p.strip() for p in permissions.split(",") if p.strip()] if permissions else []
-    d = api.create(name, prompt, tool_list, perm_list)
+    with open_registry() as api:
+        tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
+        perm_list = [p.strip() for p in permissions.split(",") if p.strip()] if permissions else []
+        d = api.create(name, prompt, tool_list, perm_list)
     click.echo(f"Created agent '{d.name}' ({d.id})")
 
 
@@ -122,16 +122,16 @@ def clone(identifier: str, name: str, prompt: str | None, tools: str | None) -> 
 
     IDENTIFIER can be an agent name or UUID.
     """
-    api = get_registry()
-    overrides: dict[str, str | int | list[str]] = {"name": name}
-    if prompt is not None:
-        overrides["system_prompt"] = prompt
-    if tools is not None:
-        overrides["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
-    try:
-        defn = api.resolve_agent(identifier)
-        d = api.clone(defn.id, overrides)
-    except Exception as e:
-        click.echo(f"Error: {e}", err=True)
-        raise SystemExit(1) from e
+    with open_registry() as api:
+        overrides: dict[str, str | int | list[str]] = {"name": name}
+        if prompt is not None:
+            overrides["system_prompt"] = prompt
+        if tools is not None:
+            overrides["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
+        try:
+            defn = api.resolve_agent(identifier)
+            d = api.clone(defn.id, overrides)
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1) from e
     click.echo(f"Cloned to '{d.name}' ({d.id})")

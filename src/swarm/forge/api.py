@@ -91,3 +91,13 @@ class ForgeAPI:
             return cached
         results = self._registry.list_agents(name_filter=name)
         return results[0] if results else None
+
+    def close(self) -> None:
+        """Close the underlying registry connection."""
+        self._registry.close()
+
+    def __enter__(self) -> ForgeAPI:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,8 +14,12 @@ from swarm.memory.models import MemoryEntry
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> MemoryAPI:
-    return MemoryAPI(tmp_path / "memory.db")
+def api(tmp_path: Path) -> Iterator[MemoryAPI]:
+    api = MemoryAPI(tmp_path / "memory.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestStore:

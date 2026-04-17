@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,12 +12,21 @@ from swarm.registry.api import RegistryAPI
 
 
 @pytest.fixture(autouse=True)
-def _setup(tmp_path: Path) -> None:
+def _setup(tmp_path: Path) -> Iterator[None]:
     state.registry_api = RegistryAPI(tmp_path / "reg.db")
     from swarm.memory.api import MemoryAPI
 
     state.memory_api = MemoryAPI(tmp_path / "mem.db")
     state.plans_dir = str(tmp_path)
+    try:
+        yield
+    finally:
+        assert state.registry_api is not None
+        state.registry_api.close()
+        assert state.memory_api is not None
+        state.memory_api.close()
+        state.registry_api = None
+        state.memory_api = None
 
 
 class TestRegistryUpdate:
@@ -53,30 +63,30 @@ class TestRegistryUpdate:
 
 class TestRegistryUpdateAPI:
     def test_update_allowed_fields(self, tmp_path: Path) -> None:
-        api = RegistryAPI(tmp_path / "reg2.db")
-        agent = api.create("test", "prompt", [], [])
-        updated = api.update(agent.id, {"description": "updated", "notes": "new notes"})
-        assert updated is not None
-        assert updated.description == "updated"
-        assert updated.notes == "new notes"
+        with RegistryAPI(tmp_path / "reg2.db") as api:
+            agent = api.create("test", "prompt", [], [])
+            updated = api.update(agent.id, {"description": "updated", "notes": "new notes"})
+            assert updated is not None
+            assert updated.description == "updated"
+            assert updated.notes == "new notes"
 
     def test_update_rejects_structural_fields(self, tmp_path: Path) -> None:
-        api = RegistryAPI(tmp_path / "reg2.db")
-        agent = api.create("test", "original prompt", [], [])
-        updated = api.update(agent.id, {"system_prompt": "hacked"})
-        assert updated is not None
-        assert updated.system_prompt == "original prompt"  # unchanged
+        with RegistryAPI(tmp_path / "reg2.db") as api:
+            agent = api.create("test", "original prompt", [], [])
+            updated = api.update(agent.id, {"system_prompt": "hacked"})
+            assert updated is not None
+            assert updated.system_prompt == "original prompt"  # unchanged
 
     def test_update_not_found(self, tmp_path: Path) -> None:
-        api = RegistryAPI(tmp_path / "reg2.db")
-        assert api.update("nonexistent", {"notes": "x"}) is None
+        with RegistryAPI(tmp_path / "reg2.db") as api:
+            assert api.update("nonexistent", {"notes": "x"}) is None
 
     def test_update_tags_list(self, tmp_path: Path) -> None:
-        api = RegistryAPI(tmp_path / "reg2.db")
-        agent = api.create("test", "prompt", [], [])
-        updated = api.update(agent.id, {"tags": ["a", "b"]})
-        assert updated is not None
-        assert list(updated.tags) == ["a", "b"]
+        with RegistryAPI(tmp_path / "reg2.db") as api:
+            agent = api.create("test", "prompt", [], [])
+            updated = api.update(agent.id, {"tags": ["a", "b"]})
+            assert updated is not None
+            assert list(updated.tags) == ["a", "b"]
 
 
 class TestSwarmHealth:

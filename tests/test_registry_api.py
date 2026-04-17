@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,12 @@ from swarm.registry.api import RegistryAPI
 
 
 @pytest.fixture()
-def api(tmp_path: Path) -> RegistryAPI:
-    return RegistryAPI(tmp_path / "registry.db")
+def api(tmp_path: Path) -> Iterator[RegistryAPI]:
+    api = RegistryAPI(tmp_path / "registry.db")
+    try:
+        yield api
+    finally:
+        api.close()
 
 
 class TestCreate:
