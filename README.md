@@ -17,7 +17,7 @@ swarm
 # Or use /swarm skill in any Claude Code session for guidance
 ```
 
-That's it. You're in a Claude Code session with 57 MCP tools for agent management, plan building, execution, memory, and messaging. Describe your goal and the orchestrator will:
+That's it. You're in a Claude Code session with the full Swarm MCP toolset for agent management, plan building, execution, memory, and messaging (currently 68 tools across 9 categories — call `swarm_health` for the live count). Describe your goal and the orchestrator will:
 
 1. Discover existing agents and suggest matches (`swarm_discover`, `forge_suggest_ranked`)
 2. Create specialized agents with focused system prompts, descriptions, and tags
@@ -51,7 +51,7 @@ The skill provides:
 - 6 core workflow patterns (discover, create, build plans, execute, memory/messaging, feedback)
 - Advanced features (loops, decisions, critics, fan-out/join) with code examples
 - Best practices and troubleshooting
-- Full 57-tool reference guide
+- Full MCP tool reference guide
 
 ### Prerequisites
 
@@ -94,7 +94,7 @@ Once cloned, specialize the agent by refining the system prompt, adding domain-s
   v
 Claude Code (orchestrator)
   |
-  ├── Swarm MCP Server (57 tools)
+  ├── Swarm MCP Server (68 tools — call `swarm_health` for the live count)
   |     ├── Discovery (2)— swarm_discover, swarm_health
   |     ├── Forge (12)   — create, clone, export, import, suggest_ranked, annotate, diff
   |     ├── Plan (16)    — templates, create, amend, execute_step, replan, retrospective, visualize, remove_step
@@ -165,7 +165,7 @@ swarm sync                          Import .swarm/agents/ into registry
 swarm mcp-config                    Print MCP server config for Claude Code
 ```
 
-## MCP Tools (57 total)
+## MCP Tools (currently 68 total — call `swarm_health` for the live count)
 
 ### Discover & Select Agents
 | Tool | Description |

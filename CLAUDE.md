@@ -1,7 +1,7 @@
 # Swarm — Project Instructions
 
 ## What is Swarm
-Swarm is an MCP tool server and agent registry that extends Claude Code for multi-agent orchestration. It provides 57 MCP tools for designing specialized agents, managing a persistent agent catalog with FTS5 full-text search, building and executing DAG-based plans with conditional gating, loop steps, decision branches, fan-out/join, critic loops, retry policies, and dynamic replanning, plus agent memory with time-based decay, inter-agent messaging, and bidirectional Claude Code integration via subagent export/import — all accessible inside a Claude Code session.
+Swarm is an MCP tool server and agent registry that extends Claude Code for multi-agent orchestration. It provides a large MCP toolset (currently 68 tools across 9 categories — call `swarm_health` for the live count, or `swarm.mcp.list_tools()` from Python) for designing specialized agents, managing a persistent agent catalog with FTS5 full-text search, building and executing DAG-based plans with conditional gating, loop steps, decision branches, fan-out/join, critic loops, retry policies, and dynamic replanning, plus agent memory with time-based decay, inter-agent messaging, and bidirectional Claude Code integration via subagent export/import — all accessible inside a Claude Code session.
 
 ## Tech Stack
 - **Language**: Python 3.12+
@@ -29,7 +29,7 @@ Key subsystems:
 - **Memory** (`src/swarm/memory/`) — persistent agent memory (episodic/semantic/procedural) with FTS5 search, TF-IDF similarity search, exponential time-based decay, reinforcement, pruning, and automatic prompt injection
 - **Messaging** (`src/swarm/messaging/`) — inter-agent message bus with send, receive, broadcast, reply with correlation IDs, acknowledgment, negotiation threads, message routing (message_to), scoped by run
 - **Experiments** (`src/swarm/experiments/`) — A/B testing for agent variants with traffic splitting, result tracking, and winner determination
-- **MCP Server** (`src/swarm/mcp/`) — 57 FastMCP tools across 9 categories: forge (12), plan (16), execution (6), registry (8), artifacts (3), discovery (2), memory (6), messaging (6), context (4)
+- **MCP Server** (`src/swarm/mcp/`) — FastMCP tools across 9 categories (forge, plan, execution, registry, artifacts, discovery, memory, messaging, context, experiments). The exact count drifts every release — call `swarm_health` (returns `tool_count` + the names) or `swarm.mcp.list_tools()` for the live registry. As of last update: 68 tools.
 - **CLI** (`src/swarm/cli/`) — Click commands (catalog, run, status, forge) + Claude session launcher with MCP server attachment
 
 Key modules:

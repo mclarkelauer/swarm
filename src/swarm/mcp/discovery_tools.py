@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 
-from swarm.mcp import state
+from swarm.mcp import list_tools, state
 from swarm.mcp.instance import mcp
 
 
@@ -13,7 +13,9 @@ from swarm.mcp.instance import mcp
 def swarm_health() -> str:
     """Check Swarm system health and configuration.
 
-    Returns database sizes, agent/memory counts, and version info.
+    Returns database sizes, agent/memory counts, version info, and the
+    live MCP tool count (introspected from the FastMCP registry — never
+    hard-coded).
 
     Returns:
         JSON object with system health information.
@@ -27,6 +29,12 @@ def swarm_health() -> str:
         health["version"] = importlib.metadata.version("swarm-mcp")
     except importlib.metadata.PackageNotFoundError:
         health["version"] = "unknown"
+
+    # MCP tool count — introspected from the FastMCP server, so the
+    # number stays accurate as tools are added or removed.
+    tools = list_tools()
+    health["tool_count"] = len(tools)
+    health["tools"] = tools
 
     # Agent count
     if state.registry_api is not None:

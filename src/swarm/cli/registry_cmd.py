@@ -98,17 +98,89 @@ def remove(identifier: str) -> None:
     click.echo(f"Removed agent {defn.name} ({defn.id})")
 
 
+# Status values accepted by RegistryAPI.create / RegistryAPI.clone.
+# Constrained at the CLI layer to catch typos early; the underlying
+# storage column is a freeform string.
+_VALID_STATUSES = ["active", "deprecated", "archived", "draft"]
+
+
+def _merge_tag_options(tags_csv: str, tag_multi: tuple[str, ...]) -> list[str]:
+    """Merge ``--tags x,y`` (comma-separated) and repeated ``--tag x`` into one list.
+
+    Both forms are accepted for ergonomics; whitespace is trimmed and
+    empty entries are dropped. Order is preserved (csv first, then
+    repeated occurrences) and duplicates are de-duplicated.
+    """
+    merged: list[str] = []
+    seen: set[str] = set()
+    if tags_csv:
+        for raw in tags_csv.split(","):
+            t = raw.strip()
+            if t and t not in seen:
+                merged.append(t)
+                seen.add(t)
+    for raw in tag_multi:
+        t = raw.strip()
+        if t and t not in seen:
+            merged.append(t)
+            seen.add(t)
+    return merged
+
+
 @registry.command()
 @click.option("--name", required=True, help="Agent type name")
 @click.option("--prompt", required=True, help="System prompt")
 @click.option("--tools", default="", help="Comma-separated tools")
 @click.option("--permissions", default="", help="Comma-separated permissions")
-def create(name: str, prompt: str, tools: str, permissions: str) -> None:
+@click.option("--description", default="", help="Human-readable description")
+@click.option(
+    "--tag",
+    "tag_multi",
+    multiple=True,
+    help="Tag (repeat for multiple, e.g. --tag python --tag review)",
+)
+@click.option(
+    "--tags",
+    "tags_csv",
+    default="",
+    help='Comma-separated tags (e.g. --tags "python,review"). May be combined with --tag.',
+)
+@click.option("--notes", default="", help="Freeform notes or lessons learned")
+@click.option(
+    "--status",
+    type=click.Choice(_VALID_STATUSES),
+    default="active",
+    show_default=True,
+    help="Lifecycle status",
+)
+def create(
+    name: str,
+    prompt: str,
+    tools: str,
+    permissions: str,
+    description: str,
+    tag_multi: tuple[str, ...],
+    tags_csv: str,
+    notes: str,
+    status: str,
+) -> None:
     """Create a new agent definition."""
     with open_registry() as api:
         tool_list = [t.strip() for t in tools.split(",") if t.strip()] if tools else []
-        perm_list = [p.strip() for p in permissions.split(",") if p.strip()] if permissions else []
-        d = api.create(name, prompt, tool_list, perm_list)
+        perm_list = (
+            [p.strip() for p in permissions.split(",") if p.strip()] if permissions else []
+        )
+        tag_list = _merge_tag_options(tags_csv, tag_multi)
+        d = api.create(
+            name,
+            prompt,
+            tool_list,
+            perm_list,
+            description=description,
+            tags=tag_list,
+            notes=notes,
+            status=status,
+        )
     click.echo(f"Created agent '{d.name}' ({d.id})")
 
 
@@ -117,7 +189,43 @@ def create(name: str, prompt: str, tools: str, permissions: str) -> None:
 @click.option("--name", required=True, help="New agent name")
 @click.option("--prompt", default=None, help="Override system prompt")
 @click.option("--tools", default=None, help="Override tools (comma-separated)")
-def clone(identifier: str, name: str, prompt: str | None, tools: str | None) -> None:
+@click.option(
+    "--permissions",
+    default=None,
+    help="Override permissions (comma-separated)",
+)
+@click.option("--description", default=None, help="Override description")
+@click.option(
+    "--tag",
+    "tag_multi",
+    multiple=True,
+    help="Tag override (repeat for multiple). Combine with --tags if desired.",
+)
+@click.option(
+    "--tags",
+    "tags_csv",
+    default=None,
+    help='Comma-separated tag overrides (e.g. --tags "python,review"). May be combined with --tag.',
+)
+@click.option("--notes", default=None, help="Override notes")
+@click.option(
+    "--status",
+    type=click.Choice(_VALID_STATUSES),
+    default=None,
+    help="Lifecycle status override",
+)
+def clone(
+    identifier: str,
+    name: str,
+    prompt: str | None,
+    tools: str | None,
+    permissions: str | None,
+    description: str | None,
+    tag_multi: tuple[str, ...],
+    tags_csv: str | None,
+    notes: str | None,
+    status: str | None,
+) -> None:
     """Clone an agent definition with overrides.
 
     IDENTIFIER can be an agent name or UUID.
@@ -128,6 +236,19 @@ def clone(identifier: str, name: str, prompt: str | None, tools: str | None) -> 
             overrides["system_prompt"] = prompt
         if tools is not None:
             overrides["tools"] = [t.strip() for t in tools.split(",") if t.strip()]
+        if permissions is not None:
+            overrides["permissions"] = [
+                p.strip() for p in permissions.split(",") if p.strip()
+            ]
+        if description is not None:
+            overrides["description"] = description
+        # Tags: only emit an override if the caller passed --tags or --tag.
+        if tags_csv is not None or tag_multi:
+            overrides["tags"] = _merge_tag_options(tags_csv or "", tag_multi)
+        if notes is not None:
+            overrides["notes"] = notes
+        if status is not None:
+            overrides["status"] = status
         try:
             defn = api.resolve_agent(identifier)
             d = api.clone(defn.id, overrides)

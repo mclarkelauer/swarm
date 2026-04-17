@@ -377,7 +377,8 @@ class RegistryAPI:
             failure_count=int(overrides["failure_count"]) if "failure_count" in overrides else 0,  # type: ignore[arg-type]
             last_used=str(overrides["last_used"]) if "last_used" in overrides else "",
             notes=data.get("notes", original.notes),
-            status="active",
+            # Status defaults to "active" on clone but honours an explicit override.
+            status=str(overrides["status"]) if "status" in overrides else "active",
             version=version,
         )
 
